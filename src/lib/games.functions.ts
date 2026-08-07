@@ -157,7 +157,14 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
       .select("id")
       .single();
 
-    if (createError || !created) throw new Error("Could not create a game.");
+    if (createError) {
+  console.error("CREATE GAME ERROR:", createError);
+  throw new Error(JSON.stringify(createError));
+}
+
+if (!created) {
+  throw new Error("Game was not created.");
+}
 
     return {
       gameId: created.id,
