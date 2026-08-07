@@ -1,0 +1,534 @@
+import { r as __toESM } from "../_runtime.mjs";
+import { n as require_jsx_runtime, r as require_react } from "../_libs/react+tanstack__react-query.mjs";
+import { _ as Link } from "../_libs/@tanstack/react-router+[...].mjs";
+import { t as Chess } from "../_libs/chess.js.mjs";
+import { n as THEME_KEY, t as BOARD_THEMES } from "./boardThemes-CqnkWAfd.mjs";
+import { r as playSound, t as BoardView } from "./sounds-6KmV21qp.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/puzzles-CZk4yewe.js
+var import_react = /* @__PURE__ */ __toESM(require_react());
+var import_jsx_runtime = require_jsx_runtime();
+/** Every puzzle is a verified mate-in-one with exactly one solution. */
+var PUZZLES = [
+	{
+		id: 1,
+		fen: "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1",
+		theme: "Back rank",
+		from: "a1",
+		to: "a8",
+		san: "Ra8#",
+		side: "w"
+	},
+	{
+		id: 2,
+		fen: "r5k1/8/8/8/8/8/5PPP/6K1 b - - 0 1",
+		theme: "Back rank",
+		from: "a8",
+		to: "a1",
+		san: "Ra1#",
+		side: "b"
+	},
+	{
+		id: 3,
+		fen: "6k1/6pp/8/8/8/8/5PPP/4Q1K1 w - - 0 1",
+		theme: "Queen finish",
+		from: "e1",
+		to: "e8",
+		san: "Qe8#",
+		side: "w"
+	},
+	{
+		id: 4,
+		fen: "4q1k1/5ppp/8/8/8/8/6PP/6K1 b - - 0 1",
+		theme: "Queen finish",
+		from: "e8",
+		to: "e1",
+		san: "Qe1#",
+		side: "b"
+	},
+	{
+		id: 5,
+		fen: "6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1",
+		theme: "Knight mate",
+		from: "g5",
+		to: "f7",
+		san: "Nf7#",
+		side: "w"
+	},
+	{
+		id: 6,
+		fen: "6k1/8/8/8/6n1/8/6PP/6RK b - - 0 1",
+		theme: "Knight mate",
+		from: "g4",
+		to: "f2",
+		san: "Nf2#",
+		side: "b"
+	},
+	{
+		id: 7,
+		fen: "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1",
+		theme: "Scholar's finish",
+		from: "f3",
+		to: "f7",
+		san: "Qxf7#",
+		side: "w"
+	},
+	{
+		id: 8,
+		fen: "rnb1k1nr/pppp1ppp/5q2/2b1p3/4P3/2N5/PPPP1PPP/R1BQKBNR b - - 0 1",
+		theme: "Scholar's finish",
+		from: "f6",
+		to: "f2",
+		san: "Qxf2#",
+		side: "b"
+	},
+	{
+		id: 9,
+		fen: "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+		theme: "Back rank",
+		from: "d1",
+		to: "d8",
+		san: "Rd8#",
+		side: "w"
+	},
+	{
+		id: 10,
+		fen: "3r2k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1",
+		theme: "Back rank",
+		from: "d8",
+		to: "d1",
+		san: "Rd1#",
+		side: "b"
+	},
+	{
+		id: 11,
+		fen: "3r2k1/5ppp/8/8/8/8/5PPP/3RR1K1 w - - 0 1",
+		theme: "Trade into mate",
+		from: "d1",
+		to: "d8",
+		san: "Rxd8#",
+		side: "w"
+	},
+	{
+		id: 12,
+		fen: "3rr1k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1",
+		theme: "Trade into mate",
+		from: "d8",
+		to: "d1",
+		san: "Rxd1#",
+		side: "b"
+	},
+	{
+		id: 13,
+		fen: "k7/8/1K6/8/8/8/8/7R w - - 0 1",
+		theme: "Rook mate",
+		from: "h1",
+		to: "h8",
+		san: "Rh8#",
+		side: "w"
+	},
+	{
+		id: 14,
+		fen: "7r/8/8/8/8/1k6/8/K7 b - - 0 1",
+		theme: "Rook mate",
+		from: "h8",
+		to: "h1",
+		san: "Rh1#",
+		side: "b"
+	},
+	{
+		id: 15,
+		fen: "6k1/4Rppp/8/8/8/8/8/6K1 w - - 0 1",
+		theme: "Back rank",
+		from: "e7",
+		to: "e8",
+		san: "Re8#",
+		side: "w"
+	},
+	{
+		id: 16,
+		fen: "6k1/8/8/8/8/8/4rPPP/6K1 b - - 0 1",
+		theme: "Back rank",
+		from: "e2",
+		to: "e1",
+		san: "Re1#",
+		side: "b"
+	},
+	{
+		id: 17,
+		fen: "1k6/1P6/1K6/8/8/8/8/7R w - - 0 1",
+		theme: "Rook mate",
+		from: "h1",
+		to: "h8",
+		san: "Rh8#",
+		side: "w"
+	},
+	{
+		id: 18,
+		fen: "7r/8/8/8/8/1k6/1p6/1K6 b - - 0 1",
+		theme: "Rook mate",
+		from: "h8",
+		to: "h1",
+		san: "Rh1#",
+		side: "b"
+	},
+	{
+		id: 19,
+		fen: "7k/6pp/8/8/8/8/8/5R1K w - - 0 1",
+		theme: "Back rank",
+		from: "f1",
+		to: "f8",
+		san: "Rf8#",
+		side: "w"
+	},
+	{
+		id: 20,
+		fen: "5r1k/8/8/8/8/8/6PP/7K b - - 0 1",
+		theme: "Back rank",
+		from: "f8",
+		to: "f1",
+		san: "Rf1#",
+		side: "b"
+	},
+	{
+		id: 21,
+		fen: "2r3k1/5ppp/8/8/8/8/5PPP/2R3K1 w - - 0 1",
+		theme: "Trade into mate",
+		from: "c1",
+		to: "c8",
+		san: "Rxc8#",
+		side: "w"
+	},
+	{
+		id: 22,
+		fen: "2r3k1/5ppp/8/8/8/8/5PPP/2R3K1 b - - 0 1",
+		theme: "Trade into mate",
+		from: "c8",
+		to: "c1",
+		san: "Rxc1#",
+		side: "b"
+	},
+	{
+		id: 23,
+		fen: "4k3/8/4K3/8/8/8/8/7R w - - 0 1",
+		theme: "Rook mate",
+		from: "h1",
+		to: "h8",
+		san: "Rh8#",
+		side: "w"
+	},
+	{
+		id: 24,
+		fen: "7r/8/8/8/8/4k3/8/4K3 b - - 0 1",
+		theme: "Rook mate",
+		from: "h8",
+		to: "h1",
+		san: "Rh1#",
+		side: "b"
+	},
+	{
+		id: 25,
+		fen: "r6k/6pp/8/8/8/8/8/R5RK w - - 0 1",
+		theme: "Back rank",
+		from: "a1",
+		to: "a8",
+		san: "Rxa8#",
+		side: "w"
+	},
+	{
+		id: 26,
+		fen: "r5rk/8/8/8/8/8/6PP/R6K b - - 0 1",
+		theme: "Back rank",
+		from: "a8",
+		to: "a1",
+		san: "Rxa1#",
+		side: "b"
+	}
+];
+var RATING_KEY = "clickchess.puzzleRating";
+var STREAK_KEY = "clickchess.puzzleStreak";
+var BEST_KEY = "clickchess.puzzleBest";
+var SOLVED_KEY = "clickchess.puzzleSolved";
+var DAILY_KEY = "clickchess.dailyDone";
+/** Same puzzle for everyone, changes at midnight local time. */
+function dailyPuzzle(date = /* @__PURE__ */ new Date()) {
+	return PUZZLES[Number(`${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`) % PUZZLES.length];
+}
+function todayKey(date = /* @__PURE__ */ new Date()) {
+	return date.toISOString().slice(0, 10);
+}
+function randomPuzzle(exclude) {
+	const pool = PUZZLES.filter((p) => p.id !== exclude);
+	return pool[Math.floor(Math.random() * pool.length)];
+}
+function num(key, fallback) {
+	if (typeof window === "undefined") return fallback;
+	const raw = window.localStorage.getItem(key);
+	const n = raw ? Number(raw) : NaN;
+	return Number.isFinite(n) ? n : fallback;
+}
+function readPuzzleStats() {
+	return {
+		rating: num(RATING_KEY, 800),
+		streak: num(STREAK_KEY, 0),
+		best: num(BEST_KEY, 0),
+		solved: num(SOLVED_KEY, 0),
+		dailyDone: typeof window !== "undefined" && window.localStorage.getItem(DAILY_KEY) === todayKey()
+	};
+}
+function writePuzzleResult(solved) {
+	const prev = readPuzzleStats();
+	const rating = Math.max(400, prev.rating + (solved ? 15 : -12));
+	const streak = solved ? prev.streak + 1 : 0;
+	const best = Math.max(prev.best, streak);
+	const total = prev.solved + (solved ? 1 : 0);
+	if (typeof window !== "undefined") {
+		window.localStorage.setItem(RATING_KEY, String(rating));
+		window.localStorage.setItem(STREAK_KEY, String(streak));
+		window.localStorage.setItem(BEST_KEY, String(best));
+		window.localStorage.setItem(SOLVED_KEY, String(total));
+	}
+	return {
+		rating,
+		streak,
+		best,
+		solved: total,
+		dailyDone: prev.dailyDone
+	};
+}
+function markDailyDone() {
+	if (typeof window !== "undefined") window.localStorage.setItem(DAILY_KEY, todayKey());
+}
+function Puzzles() {
+	const [mode, setMode] = (0, import_react.useState)("daily");
+	const [puzzle, setPuzzle] = (0, import_react.useState)(() => dailyPuzzle());
+	const [chess, setChess] = (0, import_react.useState)(() => new Chess(puzzle.fen));
+	const [selected, setSelected] = (0, import_react.useState)(null);
+	const [phase, setPhase] = (0, import_react.useState)("solving");
+	const [stats, setStats] = (0, import_react.useState)(null);
+	const [theme, setTheme] = (0, import_react.useState)("green");
+	const [showHint, setShowHint] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		setStats(readPuzzleStats());
+		const saved = window.localStorage.getItem(THEME_KEY);
+		if (saved && BOARD_THEMES.some((t) => t.id === saved)) setTheme(saved);
+	}, []);
+	const load = (next, nextMode) => {
+		setMode(nextMode);
+		setPuzzle(next);
+		setChess(new Chess(next.fen));
+		setSelected(null);
+		setShowHint(false);
+		setPhase("solving");
+	};
+	const board = (0, import_react.useMemo)(() => chess.board(), [chess]);
+	const destinations = (0, import_react.useMemo)(() => {
+		if (!selected || phase !== "solving") return /* @__PURE__ */ new Set();
+		return new Set(chess.moves({
+			square: selected,
+			verbose: true
+		}).map((m) => m.to));
+	}, [
+		chess,
+		selected,
+		phase
+	]);
+	const attempt = (from, to) => {
+		if (phase !== "solving") return;
+		if (!chess.moves({
+			square: from,
+			verbose: true
+		}).some((m) => m.to === to)) return;
+		setSelected(null);
+		if (from === puzzle.from && to === puzzle.to) {
+			const next = new Chess(chess.fen());
+			next.move({
+				from,
+				to,
+				promotion: "q"
+			});
+			setChess(next);
+			playSound("end");
+			setPhase("solved");
+			const updated = writePuzzleResult(true);
+			if (mode === "daily") markDailyDone();
+			setStats({
+				...updated,
+				dailyDone: mode === "daily" ? true : updated.dailyDone
+			});
+		} else {
+			playSound("wrong");
+			setPhase("failed");
+			setStats(writePuzzleResult(false));
+		}
+	};
+	const onSquareClick = (square) => {
+		if (phase !== "solving") return;
+		const piece = chess.get(square);
+		if (piece && piece.color === chess.turn()) {
+			setSelected(square === selected ? null : square);
+			return;
+		}
+		if (selected) attempt(selected, square);
+	};
+	const retry = () => load(puzzle, mode);
+	const next = () => load(randomPuzzle(puzzle.id), "random");
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+		className: "flex min-h-screen flex-col items-center bg-background px-4 py-8",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "w-full max-w-3xl",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+					className: "mb-6 text-center",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+							to: "/",
+							className: "text-xs uppercase tracking-[0.3em] text-muted-foreground hover:text-foreground",
+							children: "← Home"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+							className: "mt-3 font-serif text-4xl font-bold tracking-tight text-foreground",
+							children: "Puzzles"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "mt-2 text-sm text-muted-foreground",
+							children: [
+								"Find the mate in one. ",
+								puzzle.side === "w" ? "White" : "Black",
+								" to play."
+							]
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Stat, {
+							label: "Puzzle rating",
+							value: stats?.rating ?? "—"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Stat, {
+							label: "Streak",
+							value: stats?.streak ?? "—"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Stat, {
+							label: "Best streak",
+							value: stats?.best ?? "—"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Stat, {
+							label: "Solved",
+							value: stats?.solved ?? "—"
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mb-4 flex flex-wrap gap-2",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						onClick: () => load(dailyPuzzle(), "daily"),
+						className: `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${mode === "daily" ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`,
+						children: ["Daily puzzle", stats?.dailyDone ? " ✓" : ""]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						onClick: next,
+						className: `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${mode === "random" ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`,
+						children: "Random puzzle"
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex w-full flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-center",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(BoardView, {
+						board,
+						selected,
+						destinations,
+						lastMove: phase === "solved" ? {
+							from: puzzle.from,
+							to: puzzle.to
+						} : null,
+						flipped: puzzle.side === "b",
+						theme,
+						checkSquare: null,
+						onSquareClick,
+						onDropMove: attempt
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
+						className: "flex w-full flex-col gap-3 sm:w-52",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-xl border border-border bg-card p-3",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-xs font-medium uppercase tracking-wide text-muted-foreground",
+										children: "Theme"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "mt-1 text-sm font-medium text-card-foreground",
+										children: puzzle.theme
+									}),
+									phase === "solving" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "mt-2 text-xs text-muted-foreground",
+										children: showHint ? `Move the piece on ${puzzle.from}.` : "Stuck? Take a hint."
+									}),
+									phase === "solved" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "mt-2 text-sm font-semibold text-primary",
+										children: ["Solved — ", puzzle.san]
+									}),
+									phase === "failed" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "mt-2 text-sm font-semibold text-destructive",
+										children: [
+											"Not it. The answer was ",
+											puzzle.san,
+											"."
+										]
+									})
+								]
+							}),
+							phase === "solving" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setShowHint(true),
+								className: "rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary",
+								children: "Hint"
+							}),
+							phase !== "solving" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: next,
+								className: "rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90",
+								children: "Next puzzle"
+							}),
+							phase === "failed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: retry,
+								className: "rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary",
+								children: "Try again"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-xl border border-border bg-card p-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+									children: "Board"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "flex flex-wrap gap-1.5",
+									children: BOARD_THEMES.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => {
+											setTheme(t.id);
+											window.localStorage.setItem(THEME_KEY, t.id);
+										},
+										className: `rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${theme === t.id ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`,
+										children: t.label
+									}, t.id))
+								})]
+							})
+						]
+					})]
+				})
+			]
+		})
+	});
+}
+function Stat({ label, value }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "rounded-xl border border-border bg-card px-3 py-2 text-center",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			className: "text-lg font-semibold text-card-foreground",
+			children: value
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			className: "text-[0.7rem] uppercase tracking-wide text-muted-foreground",
+			children: label
+		})]
+	});
+}
+//#endregion
+export { Puzzles as component };

@@ -1,0 +1,22 @@
+{
+  "compatibility_date": "2026-08-07",
+  "main": "index.mjs",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "..\\public"
+  },
+  "name": "bhavitwadhera5-wq-chessers",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": [
+        "**/*.mjs",
+        "**/*.js"
+      ]
+    }
+  ]
+}
