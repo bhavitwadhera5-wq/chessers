@@ -4,7 +4,7 @@ import { rankedMoves } from "./engine";
 /**
  * Human-like computer opponents used for online matches.
  *
-  * There are exactly 50 unique bots in Chessers.
+* There are exactly 50 unique bots in Chessers.
  */
 export type HumanBot = {
   name: string;
