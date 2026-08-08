@@ -62,6 +62,8 @@ export const HUMAN_BOTS: HumanBot[] = [
 
   { name: "Yuna Takahashi", elo: 2740, depth: 8, budget: 2600, slip: 0.032, think: 3350 },
   { name: "Sebastian Cole", elo: 2800, depth: 8, budget: 2750, slip: 0.029, think: 3400 },
+  { name: "Nathan Price", elo: 2450, depth: 7, budget: 2700, slip: 0.008, think: 3550 },
+  { name: "Iris Morrison", elo: 2520, depth: 7, budget: 2850, slip: 0.006, think: 3600 },
   { name: "Aarav Malhotra", elo: 2860, depth: 9, budget: 2900, slip: 0.026, think: 3450 },
   { name: "Isla Thompson", elo: 2920, depth: 9, budget: 3050, slip: 0.023, think: 3500 },
   { name: "Dmitri Volkov", elo: 2980, depth: 9, budget: 3200, slip: 0.020, think: 3550 },
