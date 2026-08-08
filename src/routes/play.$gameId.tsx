@@ -1,604 +1,1362 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { Chess, type Move, type Square } from "chess.js";
+import {
+  createFileRoute,
+  Link,
+  useNavigate,
+} from "@tanstack/react-router";
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  useServerFn,
+} from "@tanstack/react-start";
+
+import {
+  Chess,
+  type Move,
+  type Square,
+} from "chess.js";
+
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+
 import {
   agreeDraw,
   botPlayMove,
-  claimTimeout,
   fillWithBot,
   makeMove,
   resignGame,
 } from "@/lib/games.functions";
-import { humanBotByName, humanBotMove, humanThinkDelay } from "@/lib/humanBots";
+
+import {
+  humanBotByName,
+  humanBotMove,
+  humanThinkDelay,
+} from "@/lib/humanBots";
+
 import { BoardView } from "@/components/BoardView";
 import { GameOverDialog } from "@/components/GameOverDialog";
 import { MoveList } from "@/components/MoveList";
 import { ReportPanel } from "@/components/ReportPanel";
+
 import { submitFairPlay } from "@/lib/moderation.functions";
 import { playMoveSound } from "@/lib/sounds";
-import { BOARD_THEMES, THEME_KEY, type BoardTheme } from "@/lib/boardThemes";
 
-export const Route = createFileRoute("/play/$gameId")({
-  head: () => ({
-    meta: [
-      { title: "Online Chess Match — Click Chess" },
-      {
-        name: "description",
-        content:
-          "A live chess match against another player. Moves sync across devices and you can only move on your turn.",
-      },
-      { property: "og:title", content: "Online Chess Match — Click Chess" },
-      {
-        property: "og:description",
-        content:
-          "Live multiplayer chess with draw offers, a scorecard and a full game review.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: PlayOnline,
-});
+import {
+  BOARD_THEMES,
+  THEME_KEY,
+  type BoardTheme,
+} from "@/lib/boardThemes";
+
+
+/* =========================================================
+   ROUTE
+========================================================= */
+
+export const Route =
+  createFileRoute("/play/$gameId")({
+    head: () => ({
+      meta: [
+        {
+          title: "Online Chess Match — Chessers",
+        },
+        {
+          name: "description",
+          content:
+            "Live multiplayer chess with automatic bot opponents.",
+        },
+      ],
+    }),
+
+    component: PlayOnline,
+  });
+
+
+/* =========================================================
+   DATABASE GAME TYPE
+========================================================= */
 
 type GameRow = {
   id: string;
+
   white_id: string | null;
   black_id: string | null;
-  invited_username: string | null;
-  fen: string;
+
+  white_username: string | null;
+  black_username: string | null;
+
   status: string;
-  result: string | null;
-  last_move: string | null;
-  time_control: number;
-  white_ms: number | null;
-  black_ms: number | null;
-  turn_started_at: string | null;
-  bot_name: string | null;
-  bot_elo: number | null;
+
+  fen: string;
+
+  turn: string | null;
+
+  winner: string | null;
+
+  created_at?: string | null;
+  updated_at?: string | null;
+
+  last_move?: string | null;
 };
 
-function fmtClock(ms: number) {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
+
+/* =========================================================
+   CONSTANTS
+========================================================= */
+
+/*
+ * IMPORTANT:
+ *
+ * The player gets 30 seconds to find another player.
+ *
+ * After 30 seconds, a bot automatically joins.
+ */
+const BOT_WAIT_MS = 30_000;
+
+
+/*
+ * Polling keeps the game working even if realtime
+ * temporarily disconnects.
+ */
+const POLL_MS = 2000;
+
+
+/* =========================================================
+   PLAY ONLINE
+========================================================= */
 
 function PlayOnline() {
   const { gameId } = Route.useParams();
-  const { user, username, loading } = useAuth();
+
+  const {
+    user,
+    username,
+    loading,
+  } = useAuth();
+
   const navigate = useNavigate();
 
-  const move = useServerFn(makeMove);
-  const resign = useServerFn(resignGame);
-  const draw = useServerFn(agreeDraw);
-  const timeout = useServerFn(claimTimeout);
-  const seatBot = useServerFn(fillWithBot);
-  const sendBotMove = useServerFn(botPlayMove);
 
-  const [game, setGame] = useState<GameRow | null>(null);
-  const [opponentName, setOpponentName] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Square | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<BoardTheme>("green");
-  const [drawOffered, setDrawOffered] = useState(false);
-  const [incomingDraw, setIncomingDraw] = useState(false);
-  const [showResult, setShowResult] = useState(true);
-  const sendFairPlay = useServerFn(submitFairPlay);
+  /* -------------------------------------------------------
+     SERVER FUNCTIONS
+  ------------------------------------------------------- */
 
-  const [now, setNow] = useState(() => Date.now());
+  const move =
+    useServerFn(makeMove);
 
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const claimedRef = useRef(false);
-  const pieceCountRef = useRef(0);
-  const fillingRef = useRef(false);
-  const botThinkingRef = useRef<string | null>(null);
+  const resign =
+    useServerFn(resignGame);
+
+  const draw =
+    useServerFn(agreeDraw);
+
+  const seatBot =
+    useServerFn(fillWithBot);
+
+  const sendBotMove =
+    useServerFn(botPlayMove);
+
+  const sendFairPlay =
+    useServerFn(submitFairPlay);
+
+
+  /* -------------------------------------------------------
+     STATE
+  ------------------------------------------------------- */
+
+  const [game, setGame] =
+    useState<GameRow | null>(null);
+
+  const [opponentName, setOpponentName] =
+    useState<string | null>(null);
+
+  const [selected, setSelected] =
+    useState<Square | null>(null);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [theme, setTheme] =
+    useState<BoardTheme>("green");
+
+  const [drawOffered, setDrawOffered] =
+    useState(false);
+
+  const [incomingDraw, setIncomingDraw] =
+    useState(false);
+
+  const [showResult, setShowResult] =
+    useState(true);
+
+  const [moveLog, setMoveLog] =
+    useState<string[]>([]);
+
+
+  /* -------------------------------------------------------
+     REFS
+  ------------------------------------------------------- */
+
+  const channelRef =
+    useRef<
+      ReturnType<typeof supabase.channel> | null
+    >(null);
+
+  const fillingRef =
+    useRef(false);
+
+  const botThinkingRef =
+    useRef<string | null>(null);
+
+  const pieceCountRef =
+    useRef(0);
+
+
+  /* =======================================================
+     LOAD SAVED BOARD THEME
+  ======================================================= */
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(THEME_KEY) as BoardTheme | null;
+    const saved =
+      window.localStorage.getItem(
+        THEME_KEY,
+      ) as BoardTheme | null;
 
-    if (saved && BOARD_THEMES.some((t) => t.id === saved)) {
+    if (
+      saved &&
+      BOARD_THEMES.some(
+        (themeItem) =>
+          themeItem.id === saved,
+      )
+    ) {
       setTheme(saved);
     }
   }, []);
 
+
+  /* =======================================================
+     REQUIRE LOGIN
+  ======================================================= */
+
   useEffect(() => {
     if (!loading && !user) {
-      navigate({ to: "/" });
+      navigate({
+        to: "/",
+      });
     }
-  }, [loading, user, navigate]);
+  }, [
+    loading,
+    user,
+    navigate,
+  ]);
+
+
+  /* =======================================================
+     LOAD GAME + REALTIME
+  ======================================================= */
 
   useEffect(() => {
     let active = true;
 
-    const load = async () => {
-      const { data } = await supabase
+
+    const loadGame = async () => {
+      const {
+        data,
+        error: loadError,
+      } = await supabase
         .from("games")
         .select("*")
         .eq("id", gameId)
         .maybeSingle();
 
-      if (active && data) {
-        setGame(data as GameRow);
+
+      if (!active) {
+        return;
       }
+
+
+      if (loadError) {
+        setError(
+          loadError.message,
+        );
+
+        return;
+      }
+
+
+      if (!data) {
+        setError(
+          "Game not found.",
+        );
+
+        return;
+      }
+
+
+      /*
+       * IMPORTANT:
+       *
+       * Always use the real database row.
+       */
+      setGame(
+        data as GameRow,
+      );
     };
 
-    load();
 
-    const channel = supabase
-      .channel(`game-${gameId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "games",
-          filter: `id=eq.${gameId}`,
+    void loadGame();
+
+
+    /* -----------------------------------------------------
+       REALTIME CHANNEL
+    ----------------------------------------------------- */
+
+    const channel =
+      supabase
+        .channel(
+          `game-${gameId}`,
+        )
+
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "games",
+            filter:
+              `id=eq.${gameId}`,
+          },
+          (payload) => {
+            if (!active) {
+              return;
+            }
+
+            setGame(
+              payload.new as GameRow,
+            );
+          },
+        )
+
+        .on(
+          "broadcast",
+          {
+            event:
+              "draw-offer",
+          },
+          ({ payload }) => {
+            if (
+              payload?.from !==
+              user?.id
+            ) {
+              setIncomingDraw(
+                true,
+              );
+            }
+          },
+        )
+
+        .on(
+          "broadcast",
+          {
+            event:
+              "draw-decline",
+          },
+          ({ payload }) => {
+            if (
+              payload?.from !==
+              user?.id
+            ) {
+              setDrawOffered(
+                false,
+              );
+            }
+          },
+        )
+
+        .subscribe();
+
+
+    channelRef.current =
+      channel;
+
+
+    /*
+     * Backup polling.
+     *
+     * This is important because the bot and multiplayer
+     * system should still update if realtime misses an event.
+     */
+    const poll =
+      window.setInterval(
+        () => {
+          void loadGame();
         },
-        (payload) => {
-          if (active) {
-            setGame(payload.new as GameRow);
-          }
-        },
-      )
-      .on("broadcast", { event: "draw-offer" }, ({ payload }) => {
-        if (payload?.from !== user?.id) {
-          setIncomingDraw(true);
-        }
-      })
-      .on("broadcast", { event: "draw-decline" }, ({ payload }) => {
-        if (payload?.from !== user?.id) {
-          setDrawOffered(false);
-        }
-      })
-      .subscribe();
+        POLL_MS,
+      );
 
-    channelRef.current = channel;
-
-    const poll = setInterval(load, 2000);
 
     return () => {
       active = false;
-      clearInterval(poll);
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+
+      window.clearInterval(
+        poll,
+      );
+
+      supabase.removeChannel(
+        channel,
+      );
+
+      channelRef.current =
+        null;
     };
-  }, [gameId, user?.id]);
+  }, [
+    gameId,
+    user?.id,
+  ]);
+
+
+  /* =======================================================
+     MY COLOR
+  ======================================================= */
 
   const myColor =
     !game || !user
       ? null
-      : game.white_id === user.id
+      : game.white_id ===
+        user.id
         ? "w"
-        : game.black_id === user.id
+        : game.black_id ===
+            user.id
           ? "b"
           : null;
 
-  useEffect(() => {
-    const otherId =
-      myColor === "w"
-        ? game?.black_id
-        : game?.white_id;
 
-    if (!otherId) {
-      setOpponentName(game?.bot_name ?? null);
+  /* =======================================================
+     OPPONENT
+  ======================================================= */
+
+  useEffect(() => {
+    if (!game) {
+      setOpponentName(
+        null,
+      );
+
       return;
     }
 
-    supabase
+
+    /*
+     * If I'm White:
+     *
+     *   opponent = Black
+     *
+     * If I'm Black:
+     *
+     *   opponent = White
+     */
+    const otherId =
+      myColor === "w"
+        ? game.black_id
+        : myColor === "b"
+          ? game.white_id
+          : null;
+
+
+    /*
+     * If the opposite seat has no player ID,
+     * it is the bot seat.
+     */
+    if (!otherId) {
+      const botName =
+        myColor === "w"
+          ? game.black_username
+          : game.white_username;
+
+      setOpponentName(
+        botName ?? null,
+      );
+
+      return;
+    }
+
+
+    /*
+     * Real player.
+     */
+    void supabase
       .from("profiles")
       .select("username")
       .eq("id", otherId)
       .maybeSingle()
-      .then(({ data }) => {
-        setOpponentName(data?.username ?? null);
-      });
-  }, [game?.black_id, game?.white_id, game?.bot_name, myColor]);
+      .then(
+        ({
+          data,
+        }) => {
+          setOpponentName(
+            data?.username ??
+              "Opponent",
+          );
+        },
+      );
+  }, [
+    game?.black_id,
+    game?.white_id,
+    game?.black_username,
+    game?.white_username,
+    myColor,
+  ]);
 
-  const chess = useMemo(
-    () => (game ? new Chess(game.fen) : null),
-    [game?.fen],
-  );
 
-  const board = useMemo(
-    () => chess?.board() ?? [],
-    [chess],
-  );
+  /* =======================================================
+     CHESS INSTANCE
+  ======================================================= */
+
+  const safeFen =
+    game?.fen &&
+    game.fen !== "start"
+      ? game.fen
+      : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+
+  const chess =
+    useMemo(() => {
+      if (!game) {
+        return null;
+      }
+
+      try {
+        return new Chess(
+          safeFen,
+        );
+      } catch {
+        /*
+         * Protect the UI from an invalid FEN.
+         */
+        return new Chess();
+      }
+    }, [
+      game?.fen,
+      safeFen,
+    ]);
+
+
+  /* =======================================================
+     BOARD
+  ======================================================= */
+
+  const board =
+    useMemo(
+      () =>
+        chess?.board() ??
+        [],
+      [chess],
+    );
+
+
+  /* =======================================================
+     TURN
+  ======================================================= */
 
   const myTurn =
     !!chess &&
     !!myColor &&
-    chess.turn() === myColor &&
-    game?.status === "active";
+    chess.turn() ===
+      myColor &&
+    game?.status ===
+      "active";
+
+
+  /* =======================================================
+     BOT WAITING SYSTEM
+  ======================================================= */
+
+  const waitingAlone =
+    !!game &&
+    game.status ===
+      "waiting" &&
+    !!myColor &&
+    (
+      myColor === "w"
+        ? !game.black_id
+        : !game.white_id
+    );
+
 
   /*
-   * BOT FALLBACK
+   * AUTOMATIC BOT:
    *
-   * A normal player gets 30 seconds to join.
-   * If nobody joins, this client asks the server to seat a bot.
+   * Wait exactly 30 seconds.
    *
-   * We also retry every 3 seconds if the request fails.
+   * Then call fillWithBot().
    */
-  const waitingAlone =
-    game?.status === "waiting" &&
-    !!myColor &&
-    !game.invited_username &&
-    (myColor === "w" ? !game.black_id : !game.white_id);
-
   useEffect(() => {
     if (!waitingAlone) {
-      fillingRef.current = false;
+      fillingRef.current =
+        false;
+
       return;
     }
 
-    if (fillingRef.current) {
+
+    if (
+      fillingRef.current
+    ) {
       return;
     }
 
-    const startedAt = Date.now();
 
-    const tryFillBot = async () => {
-      if (!waitingAlone || fillingRef.current) {
-        return;
-      }
+    /*
+     * Use the game creation time when available.
+     *
+     * This prevents the 30 seconds from resetting
+     * every time Supabase sends a realtime update.
+     */
+    const createdAt =
+      game?.created_at
+        ? new Date(
+            game.created_at,
+          ).getTime()
+        : Date.now();
 
-      const elapsed = Date.now() - startedAt;
 
-      if (elapsed < 30000) {
-        return;
-      }
+    const getElapsed =
+      () =>
+        Date.now() -
+        createdAt;
 
-      fillingRef.current = true;
 
-      try {
-        const result = await seatBot({
-          data: { gameId },
-        });
-
-        if (result) {
-          setGame((current) =>
-            current
-              ? {
-                  ...current,
-                  ...result,
-                }
-              : current,
-          );
+    const tryFillBot =
+      async () => {
+        if (
+          !waitingAlone ||
+          fillingRef.current
+        ) {
+          return;
         }
 
-        setError(null);
-      } catch (e) {
-        setError(
-          e instanceof Error
-            ? e.message.replace(/^Error:\s*/, "")
-            : "Could not start the bot.",
-        );
-      } finally {
-        fillingRef.current = false;
-      }
-    };
 
-    const firstTimer = window.setTimeout(tryFillBot, 30000);
+        const elapsed =
+          getElapsed();
 
-    const retryTimer = window.setInterval(() => {
-      void tryFillBot();
-    }, 3000);
+
+        if (
+          elapsed <
+          BOT_WAIT_MS
+        ) {
+          return;
+        }
+
+
+        fillingRef.current =
+          true;
+
+
+        try {
+          const result =
+            await seatBot({
+              data: {
+                gameId,
+              },
+            });
+
+
+          if (
+            result.filled
+          ) {
+            /*
+             * Reload the actual row from Supabase.
+             *
+             * This is safer than trying to manufacture
+             * a frontend game object from the server result.
+             */
+            const {
+              data,
+            } =
+              await supabase
+                .from("games")
+                .select("*")
+                .eq(
+                  "id",
+                  gameId,
+                )
+                .maybeSingle();
+
+
+            if (data) {
+              setGame(
+                data as GameRow,
+              );
+            }
+
+
+            setError(
+              null,
+            );
+          }
+        } catch (e) {
+          setError(
+            e instanceof Error
+              ? e.message.replace(
+                  /^Error:\s*/,
+                  "",
+                )
+              : "Could not start the bot.",
+          );
+        } finally {
+          fillingRef.current =
+            false;
+        }
+      };
+
+
+    /*
+     * First attempt exactly when the 30 seconds expire.
+     */
+    const elapsed =
+      getElapsed();
+
+    const remaining =
+      Math.max(
+        0,
+        BOT_WAIT_MS -
+          elapsed,
+      );
+
+
+    const firstTimer =
+      window.setTimeout(
+        () => {
+          void tryFillBot();
+        },
+        remaining,
+      );
+
+
+    /*
+     * If the first request fails because another
+     * client changed the row at the same time,
+     * retry every 3 seconds.
+     */
+    const retryTimer =
+      window.setInterval(
+        () => {
+          void tryFillBot();
+        },
+        3000,
+      );
+
 
     return () => {
-      window.clearTimeout(firstTimer);
-      window.clearInterval(retryTimer);
-    };
-  }, [waitingAlone, seatBot, gameId]);
+      window.clearTimeout(
+        firstTimer,
+      );
 
-  /*
-   * COMPUTER OPPONENT
-   *
-   * Once the server has seated the bot, this client makes the
-   * bot's moves and sends them through the server function.
-   */
+      window.clearInterval(
+        retryTimer,
+      );
+    };
+  }, [
+    waitingAlone,
+    game?.created_at,
+    gameId,
+    seatBot,
+  ]);
+
+
+  /* =======================================================
+     BOT DETECTION
+  ======================================================= */
+
+  const botName =
+    game && myColor
+      ? myColor === "w"
+        ? game.black_username
+        : game.white_username
+      : null;
+
+
   const botSeatEmpty =
-    !!game?.bot_name &&
+    !!game &&
     !!myColor &&
-    (myColor === "w" ? !game.black_id : !game.white_id);
+    !!botName &&
+    (
+      myColor === "w"
+        ? !game.black_id
+        : !game.white_id
+    );
+
+
+  /* =======================================================
+     BOT MOVE SYSTEM
+  ======================================================= */
 
   useEffect(() => {
     if (
       !botSeatEmpty ||
       !chess ||
       !game ||
-      game.status !== "active" ||
+      game.status !==
+        "active" ||
       myTurn
     ) {
       return;
     }
 
-    const bot = humanBotByName(game.bot_name!);
+
+    if (!botName) {
+      return;
+    }
+
+
+    const bot =
+      humanBotByName(
+        botName,
+      );
+
 
     if (!bot) {
+      setError(
+        `Bot "${botName}" could not be found.`,
+      );
+
       return;
     }
 
-    const fen = game.fen;
 
-    if (botThinkingRef.current === fen) {
+    const fen =
+      game.fen;
+
+
+    /*
+     * Don't make two bot moves from the
+     * exact same position.
+     */
+    if (
+      botThinkingRef.current ===
+      fen
+    ) {
       return;
     }
 
-    botThinkingRef.current = fen;
 
-    const id = window.setTimeout(() => {
-      const choice = humanBotMove(fen, bot);
+    botThinkingRef.current =
+      fen;
 
-      if (!choice) {
-        botThinkingRef.current = null;
-        return;
-      }
 
-      sendBotMove({
-        data: {
-          gameId,
-          from: choice.from,
-          to: choice.to,
+    /*
+     * Human-like thinking delay.
+     */
+    const thinkingTime =
+      humanThinkDelay(
+        bot,
+      );
+
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          try {
+            const choice =
+              humanBotMove(
+                fen,
+                bot,
+              );
+
+
+            if (!choice) {
+              botThinkingRef.current =
+                null;
+
+              return;
+            }
+
+
+            const result =
+              await sendBotMove({
+                data: {
+                  gameId,
+                  from:
+                    choice.from,
+                  to:
+                    choice.to,
+                },
+              });
+
+
+            /*
+             * Reload the complete database row.
+             *
+             * This keeps the client synchronized.
+             */
+            const {
+              data,
+            } =
+              await supabase
+                .from("games")
+                .select("*")
+                .eq(
+                  "id",
+                  gameId,
+                )
+                .maybeSingle();
+
+
+            if (data) {
+              setGame(
+                data as GameRow,
+              );
+            } else {
+              /*
+               * Fallback if the realtime/database
+               * request is momentarily unavailable.
+               */
+              setGame(
+                (current) =>
+                  current
+                    ? {
+                        ...current,
+                        fen:
+                          result.fen,
+                        status:
+                          result.status,
+                        winner:
+                          result.winner,
+                        turn:
+                          result.turn,
+                        last_move:
+                          `${choice.from}${choice.to}`,
+                      }
+                    : current,
+              );
+            }
+
+
+            botThinkingRef.current =
+              null;
+
+            setError(
+              null,
+            );
+          } catch (e) {
+            botThinkingRef.current =
+              null;
+
+            setError(
+              e instanceof Error
+                ? e.message.replace(
+                    /^Error:\s*/,
+                    "",
+                  )
+                : "Bot move failed.",
+            );
+          }
         },
-      })
-        .then((res) => {
-          setGame((g) =>
-            g
-              ? {
-                  ...g,
-                  fen: res.fen,
-                  status: res.status,
-                  result: res.result,
-                  last_move: `${choice.from}${choice.to}`,
-                }
-              : g,
-          );
-        })
-        .catch((e) => {
-          botThinkingRef.current = null;
+        thinkingTime,
+      );
 
-          setError(
-            e instanceof Error
-              ? e.message.replace(/^Error:\s*/, "")
-              : "Bot move failed.",
-          );
-        });
-    }, humanThinkDelay(bot));
 
-    return () => clearTimeout(id);
+    return () => {
+      window.clearTimeout(
+        timer,
+      );
+    };
   }, [
     botSeatEmpty,
+    botName,
     game?.fen,
     game?.status,
     myTurn,
     gameId,
     sendBotMove,
+    chess,
   ]);
 
-  // Live clocks
-  const clockOn =
-    !!game?.time_control &&
-    game.status === "active";
+
+  /* =======================================================
+     MOVE HISTORY
+  ======================================================= */
 
   useEffect(() => {
-    if (!clockOn) {
+    const lastMove =
+      game?.last_move;
+
+
+    if (!lastMove) {
       return;
     }
 
-    const id = setInterval(() => {
-      setNow(Date.now());
-    }, 250);
 
-    return () => clearInterval(id);
-  }, [clockOn]);
+    setMoveLog(
+      (log) => {
+        if (
+          log[
+            log.length - 1
+          ] === lastMove
+        ) {
+          return log;
+        }
 
-  const remaining = (side: "w" | "b") => {
-    if (!game?.time_control) {
-      return null;
-    }
 
-    const base =
-      (side === "w" ? game.white_ms : game.black_ms) ??
-      game.time_control * 60000;
+        const pieces =
+          (
+            game?.fen ??
+            ""
+          )
+            .split(" ")[0]
+            .replace(
+              /[^a-zA-Z]/g,
+              "",
+            ).length;
 
-    if (
-      game.status !== "active" ||
-      !chess ||
-      chess.turn() !== side ||
-      !game.turn_started_at
-    ) {
-      return Math.max(0, base);
-    }
 
-    return Math.max(
-      0,
-      base - (now - new Date(game.turn_started_at).getTime()),
-    );
-  };
+        const captured =
+          pieceCountRef.current >
+            0 &&
+          pieces <
+            pieceCountRef.current;
 
-  const turnClock = chess
-    ? remaining(chess.turn() as "w" | "b")
-    : null;
 
-  useEffect(() => {
-    if (
-      !clockOn ||
-      turnClock === null ||
-      turnClock > 0 ||
-      claimedRef.current
-    ) {
-      return;
-    }
+        pieceCountRef.current =
+          pieces;
 
-    claimedRef.current = true;
 
-    timeout({ data: { gameId } }).catch(() => {
-      claimedRef.current = false;
-    });
-  }, [clockOn, turnClock, timeout, gameId]);
-
-  // Move history
-  const [moveLog, setMoveLog] = useState<string[]>([]);
-
-  useEffect(() => {
-    const lm = game?.last_move;
-
-    if (!lm) {
-      return;
-    }
-
-    setMoveLog((log) => {
-      if (log[log.length - 1] === lm) {
-        return log;
-      }
-
-      const pieces = (game?.fen ?? "")
-        .split(" ")[0]
-        .replace(/[^a-zA-Z]/g, "").length;
-
-      const captured =
-        pieceCountRef.current > 0 &&
-        pieces < pieceCountRef.current;
-
-      pieceCountRef.current = pieces;
-
-      playMoveSound({
-        captured,
-        check: !!chess?.inCheck(),
-        over: game?.status === "finished",
-      });
-
-      return [...log, lm];
-    });
-  }, [game?.last_move]);
-
-  const history = useMemo(() => {
-    const replay = new Chess();
-
-    for (const m of moveLog) {
-      try {
-        replay.move({
-          from: m.slice(0, 2),
-          to: m.slice(2, 4),
-          promotion: "q",
+        playMoveSound({
+          captured,
+          check:
+            !!chess?.inCheck(),
+          over:
+            game?.status ===
+            "finished",
         });
-      } catch {
-        return [] as Move[];
-      }
-    }
 
-    return replay.history({
-      verbose: true,
-    }) as Move[];
-  }, [moveLog]);
+
+        return [
+          ...log,
+          lastMove,
+        ];
+      },
+    );
+  }, [
+    game?.last_move,
+  ]);
+
+
+  const history =
+    useMemo(() => {
+      const replay =
+        new Chess();
+
+
+      for (
+        const moveString of
+        moveLog
+      ) {
+        try {
+          replay.move({
+            from:
+              moveString.slice(
+                0,
+                2,
+              ),
+            to:
+              moveString.slice(
+                2,
+                4,
+              ),
+            promotion:
+              "q",
+          });
+        } catch {
+          return [] as Move[];
+        }
+      }
+
+
+      return replay.history({
+        verbose: true,
+      }) as Move[];
+    }, [
+      moveLog,
+    ]);
+
+
+  /* =======================================================
+     CLEAR ERROR WHEN IT BECOMES OUR TURN
+  ======================================================= */
 
   useEffect(() => {
     if (myTurn) {
       setError(null);
     }
-  }, [myTurn]);
+  }, [
+    myTurn,
+  ]);
 
-  const destinations = useMemo(() => {
-    if (!chess || !selected) {
-      return new Set<string>();
-    }
 
-    return new Set(
-      chess
-        .moves({
-          square: selected,
-          verbose: true,
-        })
-        .map((m) => m.to),
-    );
-  }, [chess, selected]);
+  /* =======================================================
+     DESTINATIONS
+  ======================================================= */
 
-  const checkSquare = useMemo(() => {
-    if (!chess?.inCheck()) {
-      return null;
-    }
+  const destinations =
+    useMemo(() => {
+      if (
+        !chess ||
+        !selected
+      ) {
+        return new Set<string>();
+      }
 
-    const turn = chess.turn();
 
-    for (const row of chess.board()) {
-      for (const cell of row) {
-        if (
-          cell &&
-          cell.type === "k" &&
-          cell.color === turn
+      return new Set(
+        chess
+          .moves({
+            square:
+              selected,
+            verbose:
+              true,
+          })
+          .map(
+            (move) =>
+              move.to,
+          ),
+      );
+    }, [
+      chess,
+      selected,
+    ]);
+
+
+  /* =======================================================
+     CHECK SQUARE
+  ======================================================= */
+
+  const checkSquare =
+    useMemo(() => {
+      if (
+        !chess?.inCheck()
+      ) {
+        return null;
+      }
+
+
+      const turn =
+        chess.turn();
+
+
+      for (
+        const row of
+        chess.board()
+      ) {
+        for (
+          const cell of
+          row
         ) {
-          return cell.square;
+          if (
+            cell &&
+            cell.type ===
+              "k" &&
+            cell.color ===
+              turn
+          ) {
+            return cell.square;
+          }
         }
       }
-    }
 
-    return null;
-  }, [chess]);
 
-  const lastMove = game?.last_move
-    ? {
-        from: game.last_move.slice(0, 2),
-        to: game.last_move.slice(2, 4),
+      return null;
+    }, [
+      chess,
+    ]);
+
+
+  /* =======================================================
+     LAST MOVE
+  ======================================================= */
+
+  const lastMove =
+    game?.last_move
+      ? {
+          from:
+            game.last_move.slice(
+              0,
+              2,
+            ),
+          to:
+            game.last_move.slice(
+              2,
+              4,
+            ),
+        }
+      : null;
+
+
+  /* =======================================================
+     CLICK BOARD
+  ======================================================= */
+
+  const onSquareClick =
+    async (
+      square: Square,
+    ) => {
+      if (
+        !chess ||
+        !myTurn
+      ) {
+        if (
+          game?.status ===
+            "active" &&
+          !myTurn
+        ) {
+          setError(
+            "It's not your turn yet.",
+          );
+        }
+
+        return;
       }
-    : null;
 
-  const onSquareClick = async (square: Square) => {
-    if (!chess || !myTurn) {
-      if (game?.status === "active" && !myTurn) {
-        setError("It's not your turn yet.");
+
+      setError(null);
+
+
+      const piece =
+        chess.get(
+          square,
+        );
+
+
+      /*
+       * Select our piece.
+       */
+      if (
+        piece &&
+        piece.color ===
+          myColor
+      ) {
+        setSelected(
+          square ===
+            selected
+            ? null
+            : square,
+        );
+
+        return;
       }
 
-      return;
-    }
 
-    setError(null);
+      if (!selected) {
+        return;
+      }
 
-    const piece = chess.get(square);
 
-    if (piece && piece.color === myColor) {
+      const from =
+        selected;
+
+
       setSelected(
-        square === selected ? null : square,
+        null,
       );
-      return;
-    }
 
-    if (!selected) {
-      return;
-    }
 
-    const from = selected;
+      try {
+        const result =
+          await move({
+            data: {
+              gameId,
+              from,
+              to: square,
+            },
+          });
 
-    setSelected(null);
 
-    try {
-      const res = await move({
-        data: {
-          gameId,
-          from,
-          to: square,
+        /*
+         * Reload the complete row.
+         */
+        const {
+          data,
+        } =
+          await supabase
+            .from("games")
+            .select("*")
+            .eq(
+              "id",
+              gameId,
+            )
+            .maybeSingle();
+
+
+        if (data) {
+          setGame(
+            data as GameRow,
+          );
+        } else {
+          setGame(
+            (current) =>
+              current
+                ? {
+                    ...current,
+                    fen:
+                      result.fen,
+                    status:
+                      result.status,
+                    turn:
+                      result.turn,
+                    winner:
+                      result.winner,
+                    last_move:
+                      `${from}${square}`,
+                  }
+                : current,
+          );
+        }
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message.replace(
+                /^Error:\s*/,
+                "",
+              )
+            : "Move failed.",
+        );
+      }
+    };
+
+
+  /* =======================================================
+     DRAW OFFER
+  ======================================================= */
+
+  const sendDrawOffer =
+    () => {
+      setDrawOffered(
+        true,
+      );
+
+
+      channelRef.current?.send(
+        {
+          type:
+            "broadcast",
+
+          event:
+            "draw-offer",
+
+          payload: {
+            from:
+              user?.id,
+          },
         },
-      });
+      );
+    };
 
-      setGame((g) =>
-        g
-          ? {
-              ...g,
-              fen: res.fen,
-              status: res.status,
-              result: res.result,
-              last_move: `${from}${square}`,
-            }
-          : g,
-      );
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message.replace(/^Error:\s*/, "")
-          : "Move failed.",
-      );
-    }
-  };
+
+  /* =======================================================
+     LOADING
+  ======================================================= */
 
   if (!game) {
     return (
@@ -606,221 +1364,427 @@ function PlayOnline() {
         <p className="text-center text-sm text-muted-foreground">
           Loading match…
         </p>
+
+        {error && (
+          <p className="mt-3 text-center text-sm text-destructive">
+            {error}
+          </p>
+        )}
       </Shell>
     );
   }
+
+
+  /* =======================================================
+     PLAYER CHECK
+  ======================================================= */
 
   if (!myColor) {
     return (
       <Shell>
-        <p className="text-center text-sm text-muted-foreground">
-          You're not a player in this match.
-        </p>
+        <div className="rounded-xl border border-border bg-card p-6 text-center">
+          <p className="font-medium text-card-foreground">
+            You're not a player in this match.
+          </p>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            This game belongs to another account.
+          </p>
+
+          <button
+            onClick={() =>
+              navigate({
+                to: "/",
+              })
+            }
+            className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+          >
+            Go home
+          </button>
+        </div>
       </Shell>
     );
   }
-    const iWon =
-    game.result ===
-    (myColor === "w" ? "white" : "black");
+
+
+  /* =======================================================
+     RESULT
+  ======================================================= */
+
+  const myResult =
+    game.winner ===
+    "draw"
+      ? "draw"
+      : game.winner ===
+          (myColor ===
+          "w"
+            ? "white"
+            : "black")
+        ? "win"
+        : game.winner
+          ? "loss"
+          : null;
+
+
+  /* =======================================================
+     STATUS TEXT
+  ======================================================= */
 
   let status: string;
 
-  if (game.status === "waiting") {
-    status = game.invited_username
-      ? `Waiting for ${game.invited_username} to join…`
-      : "Finding you an opponent…";
-  } else if (game.status === "finished") {
+
+  if (
+    game.status ===
+    "waiting"
+  ) {
     status =
-      game.result === "draw"
+      "Finding you an opponent…";
+  } else if (
+    game.status ===
+    "finished"
+  ) {
+    status =
+      myResult ===
+      "draw"
         ? "Draw"
-        : iWon
+        : myResult ===
+            "win"
           ? "You won!"
           : "You lost.";
-  } else if (myTurn) {
-    status = chess?.inCheck()
-      ? "Your move — you're in check"
-      : "Your move";
+  } else if (
+    myTurn
+  ) {
+    status =
+      chess?.inCheck()
+        ? "Your move — you're in check"
+        : "Your move";
   } else {
-    status = `Waiting for ${
-      opponentName ?? "your opponent"
-    }…`;
+    status =
+      `Waiting for ${
+        opponentName ??
+        "your opponent"
+      }…`;
   }
 
-  const sendDrawOffer = () => {
-    setDrawOffered(true);
 
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "draw-offer",
-      payload: {
-        from: user?.id,
-      },
-    });
-  };
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <Shell>
+
       <div className="flex flex-col items-center gap-5">
 
+        {/* =================================================
+            GAME HEADER
+        ================================================= */}
+
         <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-5 py-3 shadow-[var(--shadow-panel)]">
+
           <div>
+
             <p className="font-medium text-card-foreground">
               {status}
             </p>
 
+
             <p className="text-xs text-muted-foreground">
+
               You play{" "}
-              {myColor === "w" ? "White" : "Black"}
+
+              {myColor ===
+              "w"
+                ? "White"
+                : "Black"}
+
 
               {opponentName
                 ? ` · vs ${opponentName}`
                 : ""}
 
-              {game.bot_name && game.bot_elo
-                ? ` (${game.bot_elo})`
+
+              {botName
+                ? " · COMPUTER"
                 : ""}
+
             </p>
+
           </div>
 
-          {!!game.time_control && (
-            <div className="flex gap-2 font-mono text-sm">
-
-              <span
-                className={`rounded-md px-2.5 py-1 ${
-                  chess?.turn() ===
-                  (myColor === "w" ? "b" : "w")
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {opponentName ?? "Opponent"}{" "}
-                {fmtClock(
-                  remaining(
-                    myColor === "w" ? "b" : "w",
-                  ) ?? 0,
-                )}
-              </span>
-
-              <span
-                className={`rounded-md px-2.5 py-1 ${
-                  myTurn
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground"
-                }`}
-              >
-                You {fmtClock(remaining(myColor) ?? 0)}
-              </span>
-
-            </div>
-          )}
         </div>
 
-        {game.status === "waiting" && (
-          <p className="rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
-            {game.invited_username
-              ? `Waiting for ${game.invited_username} to join…`
-              : "Waiting for an opponent. If nobody joins within 30 seconds, a bot will automatically start the game."}
-          </p>
+
+        {/* =================================================
+            WAITING MESSAGE
+        ================================================= */}
+
+        {game.status ===
+          "waiting" && (
+
+          <div className="rounded-lg border border-border bg-card px-4 py-3 text-center">
+
+            <p className="text-sm font-medium text-card-foreground">
+              Waiting for an opponent
+            </p>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              If nobody joins within 30 seconds,
+              a computer opponent will automatically
+              start the game.
+            </p>
+
+          </div>
+
         )}
+
+
+        {/* =================================================
+            BOT MESSAGE
+        ================================================= */}
+
+        {botName &&
+          game.status ===
+            "active" && (
+
+          <div className="rounded-lg border border-border bg-card px-4 py-2 text-center">
+
+            <p className="text-xs text-muted-foreground">
+
+              You are playing against{" "}
+
+              <span className="font-semibold text-card-foreground">
+                {botName}
+              </span>
+
+            </p>
+
+          </div>
+
+        )}
+
+
+        {/* =================================================
+            BOARD + SIDE PANEL
+        ================================================= */}
 
         <div className="flex w-full flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-center">
 
+
+          {/* BOARD */}
+
           <BoardView
-            board={board}
-            selected={selected}
-            destinations={destinations}
-            lastMove={lastMove}
-            flipped={myColor === "b"}
-            theme={theme}
-            checkSquare={checkSquare}
-            onSquareClick={onSquareClick}
-            onDropMove={(from, to) => {
-              setSelected(from);
-              void onSquareClick(to);
+            board={
+              board
+            }
+
+            selected={
+              selected
+            }
+
+            destinations={
+              destinations
+            }
+
+            lastMove={
+              lastMove
+            }
+
+            flipped={
+              myColor ===
+              "b"
+            }
+
+            theme={
+              theme
+            }
+
+            checkSquare={
+              checkSquare
+            }
+
+            onSquareClick={
+              onSquareClick
+            }
+
+            onDropMove={(
+              from,
+              to,
+            ) => {
+              setSelected(
+                from,
+              );
+
+              void onSquareClick(
+                to,
+              );
             }}
           />
 
+
+          {/* SIDE PANEL */}
+
           <aside className="flex w-full flex-col gap-3 sm:w-52">
 
+
+            {/* MOVE LIST */}
+
             <MoveList
-              history={history}
-              whiteLabel={
-                myColor === "w"
-                  ? username ?? "You"
-                  : opponentName ?? "White"
+              history={
+                history
               }
+
+              whiteLabel={
+                myColor ===
+                "w"
+                  ? username ??
+                    "You"
+                  : opponentName ??
+                    "White"
+              }
+
               blackLabel={
-                myColor === "b"
-                  ? username ?? "You"
-                  : opponentName ?? "Black"
+                myColor ===
+                "b"
+                  ? username ??
+                    "You"
+                  : opponentName ??
+                    "Black"
               }
             />
 
-            {game.status !== "finished" && (
+
+            {/* RESIGN / DRAW */}
+
+            {game.status !==
+              "finished" && (
+
               <>
+
                 <button
-                  onClick={() =>
-                    resign({
-                      data: { gameId },
-                    })
-                  }
+                  onClick={async () => {
+                    try {
+                      await resign({
+                        data: {
+                          gameId,
+                        },
+                      });
+                    } catch (
+                      e
+                    ) {
+                      setError(
+                        e instanceof Error
+                          ? e.message.replace(
+                              /^Error:\s*/,
+                              "",
+                            )
+                          : "Could not resign.",
+                      );
+                    }
+                  }}
                   className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
                 >
                   Resign
                 </button>
 
+
                 <button
-                  onClick={sendDrawOffer}
-                  disabled={drawOffered}
+                  onClick={
+                    sendDrawOffer
+                  }
+                  disabled={
+                    drawOffered
+                  }
                   className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:opacity-50"
                 >
                   {drawOffered
                     ? "Draw offered…"
                     : "Offer draw"}
                 </button>
+
               </>
+
             )}
 
+
+            {/* INCOMING DRAW */}
+
             {incomingDraw &&
-              game.status === "active" && (
-                <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+              game.status ===
+                "active" && (
 
-                  <p className="text-xs text-muted-foreground">
-                    {opponentName ?? "Your opponent"} offers a draw.
-                  </p>
+              <div className="space-y-2 rounded-xl border border-border bg-card p-3">
 
-                  <button
-                    onClick={async () => {
-                      setIncomingDraw(false);
+                <p className="text-xs text-muted-foreground">
+                  {opponentName ??
+                    "Your opponent"}{" "}
+                  offers a draw.
+                </p>
 
+
+                <button
+                  onClick={async () => {
+                    setIncomingDraw(
+                      false,
+                    );
+
+                    try {
                       await draw({
-                        data: { gameId },
-                      });
-                    }}
-                    className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground"
-                  >
-                    Accept
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIncomingDraw(false);
-
-                      channelRef.current?.send({
-                        type: "broadcast",
-                        event: "draw-decline",
-                        payload: {
-                          from: user?.id,
+                        data: {
+                          gameId,
                         },
                       });
-                    }}
-                    className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground"
-                  >
-                    Decline
-                  </button>
+                    } catch (
+                      e
+                    ) {
+                      setError(
+                        e instanceof Error
+                          ? e.message.replace(
+                              /^Error:\s*/,
+                              "",
+                            )
+                          : "Could not accept the draw.",
+                      );
+                    }
+                  }}
+                  className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground"
+                >
+                  Accept
+                </button>
 
-                </div>
-              )}
+
+                <button
+                  onClick={() => {
+                    setIncomingDraw(
+                      false,
+                    );
+
+                    channelRef.current?.send(
+                      {
+                        type:
+                          "broadcast",
+
+                        event:
+                          "draw-decline",
+
+                        payload: {
+                          from:
+                            user?.id,
+                        },
+                      },
+                    );
+                  }}
+                  className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground"
+                >
+                  Decline
+                </button>
+
+              </div>
+
+            )}
+
+
+            {/* BOARD THEMES */}
 
             <div className="rounded-xl border border-border bg-card p-3">
 
@@ -828,115 +1792,239 @@ function PlayOnline() {
                 Board
               </p>
 
+
               <div className="flex flex-wrap gap-1.5">
 
-                {BOARD_THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setTheme(t.id)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      theme === t.id
-                        ? "bg-primary text-primary-foreground"
-                        : "border border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+                {BOARD_THEMES.map(
+                  (boardTheme) => (
+
+                    <button
+                      key={
+                        boardTheme.id
+                      }
+
+                      onClick={() =>
+                        setTheme(
+                          boardTheme.id,
+                        )
+                      }
+
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                        theme ===
+                        boardTheme.id
+                          ? "bg-primary text-primary-foreground"
+                          : "border border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {
+                        boardTheme.label
+                      }
+                    </button>
+
+                  ),
+                )}
 
               </div>
+
             </div>
 
-            {game.status === "finished" && (
+
+            {/* RESULT BUTTON */}
+
+            {game.status ===
+              "finished" && (
+
               <button
-                onClick={() => setShowResult(true)}
+                onClick={() =>
+                  setShowResult(
+                    true,
+                  )
+                }
                 className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
               >
                 Scorecard & review
               </button>
+
             )}
 
           </aside>
+
         </div>
 
+
+        {/* =================================================
+            ERROR
+        ================================================= */}
+
         {error && (
-          <p className="text-sm text-destructive">
+
+          <p className="text-center text-sm text-destructive">
             {error}
           </p>
+
         )}
 
       </div>
 
+
+      {/* ===================================================
+          GAME OVER
+      =================================================== */}
+
       <GameOverDialog
+
         open={
-          game.status === "finished" &&
+          game.status ===
+            "finished" &&
           showResult
         }
+
+
         headline={
-          game.result === "draw"
+          game.winner ===
+          "draw"
             ? "Draw"
-            : iWon
+            : myResult ===
+                "win"
               ? "You won!"
               : "You lost"
         }
+
+
         detail={
-          game.result === "draw"
+          game.winner ===
+          "draw"
             ? "The game ended in a draw."
             : chess?.isCheckmate()
               ? "Checkmate ended the game."
               : "The game is over."
         }
-        history={history}
+
+
+        history={
+          history
+        }
+
+
         whiteLabel={
-          myColor === "w"
-            ? username ?? "You"
-            : opponentName ?? "White"
+          myColor ===
+          "w"
+            ? username ??
+              "You"
+            : opponentName ??
+              "White"
         }
+
+
         blackLabel={
-          myColor === "b"
-            ? username ?? "You"
-            : opponentName ?? "Black"
+          myColor ===
+          "b"
+            ? username ??
+              "You"
+            : opponentName ??
+              "Black"
         }
+
+
         reportSlot={
-          <ReportPanel gameId={gameId} />
+          <ReportPanel
+            gameId={
+              gameId
+            }
+          />
         }
-        onReview={(review) => {
+
+
+        onReview={(
+          review,
+        ) => {
+
           void sendFairPlay({
             data: {
               gameId,
-              stats: (["w", "b"] as const).map(
-                (c) => ({
-                  color: c,
-                  engineMatch:
-                    review.fairPlay[c].engineMatch,
-                  accuracy:
-                    review.fairPlay[c].accuracy,
-                  moves:
-                    review.fairPlay[c].moves,
-                  suspicion:
-                    review.fairPlay[c].suspicion,
-                }),
-              ),
+
+              stats:
+                (
+                  [
+                    "w",
+                    "b",
+                  ] as const
+                ).map(
+                  (
+                    color,
+                  ) => ({
+                    color,
+
+                    engineMatch:
+                      review
+                        .fairPlay[
+                        color
+                      ]
+                        .engineMatch,
+
+                    accuracy:
+                      review
+                        .fairPlay[
+                        color
+                      ]
+                        .accuracy,
+
+                    moves:
+                      review
+                        .fairPlay[
+                        color
+                      ]
+                        .moves,
+
+                    suspicion:
+                      review
+                        .fairPlay[
+                        color
+                      ]
+                        .suspicion,
+                  }),
+                ),
             },
-          }).catch(() => undefined);
+          }).catch(
+            () =>
+              undefined,
+          );
+
         }}
+
+
         onRematch={() =>
-          navigate({ to: "/" })
+          navigate({
+            to: "/",
+          })
         }
+
+
         onClose={() =>
-          setShowResult(false)
+          setShowResult(
+            false,
+          )
         }
+
       />
+
     </Shell>
   );
 }
 
+
+/* =========================================================
+   PAGE SHELL
+========================================================= */
+
 function Shell({
   children,
 }: {
-  children: React.ReactNode;
+  children:
+    React.ReactNode;
 }) {
   return (
+
     <main className="flex min-h-screen flex-col items-center bg-background px-4 py-8">
 
       <div className="w-full max-w-3xl">
@@ -950,11 +2038,13 @@ function Shell({
             ← Home
           </Link>
 
+
           <h1 className="mt-3 font-serif text-3xl font-bold tracking-tight text-foreground">
             Online Match
           </h1>
 
         </header>
+
 
         {children}
 

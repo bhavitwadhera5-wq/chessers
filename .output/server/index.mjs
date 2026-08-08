@@ -23,26 +23,12 @@ var public_assets_data_default = {
 		"size": 20373,
 		"path": "../public/favicon.ico"
 	},
-	"/assets/admin-Bhb3W9Yr.js": {
+	"/assets/admin-gNgiIvfZ.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"34d1-dlDtrHTUbfNVvFN9OTlkPEnW4E8\"",
-		"mtime": "2026-08-08T07:10:30.603Z",
-		"size": 13521,
-		"path": "../public/assets/admin-Bhb3W9Yr.js"
-	},
-	"/assets/chess-ChQH7pbr.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"8836-OQu9tF1csjjui1hWoGGgzKVmFJ4\"",
-		"mtime": "2026-08-08T07:10:30.603Z",
-		"size": 34870,
-		"path": "../public/assets/chess-ChQH7pbr.js"
-	},
-	"/assets/index-DgQyC2jU.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"7f572-usfseRlu64ivuAyUVmRJ9h1K104\"",
-		"mtime": "2026-08-08T07:10:30.601Z",
-		"size": 521586,
-		"path": "../public/assets/index-DgQyC2jU.js"
+		"etag": "\"2305-dExLhE1UH9F6BSUGGJug7lN4tj0\"",
+		"mtime": "2026-08-08T14:22:09.373Z",
+		"size": 8965,
+		"path": "../public/assets/admin-gNgiIvfZ.js"
 	},
 	"/robots.txt": {
 		"type": "text/plain; charset=utf-8",
@@ -51,75 +37,117 @@ var public_assets_data_default = {
 		"size": 23,
 		"path": "../public/robots.txt"
 	},
-	"/assets/online-C1q3fhSc.js": {
+	"/assets/auth-middleware-XdDP2SK3.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"1039-tLZgpfdkuvxKbmRzH1Z8smgi5Us\"",
-		"mtime": "2026-08-08T07:10:30.607Z",
-		"size": 4153,
-		"path": "../public/assets/online-C1q3fhSc.js"
+		"etag": "\"1285-WmA+tw3f2Lch4GYPULSC5ICLqBk\"",
+		"mtime": "2026-08-08T14:22:09.375Z",
+		"size": 4741,
+		"path": "../public/assets/auth-middleware-XdDP2SK3.js"
 	},
-	"/assets/leaderboard-CWSMOM2f.js": {
+	"/assets/chess-ChQH7pbr.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"1536-bjfO/giFPtKhlaNiE5a6wtf7yUk\"",
-		"mtime": "2026-08-08T07:10:30.605Z",
-		"size": 5430,
-		"path": "../public/assets/leaderboard-CWSMOM2f.js"
+		"etag": "\"8836-OQu9tF1csjjui1hWoGGgzKVmFJ4\"",
+		"mtime": "2026-08-08T14:22:09.376Z",
+		"size": 34870,
+		"path": "../public/assets/chess-ChQH7pbr.js"
+	},
+	"/assets/engine-BniCeKTo.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"3de4-g2fHC5UkmtzJSTFn5ewmZVMTLVo\"",
+		"mtime": "2026-08-08T14:22:09.378Z",
+		"size": 15844,
+		"path": "../public/assets/engine-BniCeKTo.js"
+	},
+	"/assets/humanBots-DB633ST7.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"1075-FGqIsgeUnjCpkbbLm4meQGFDSEs\"",
+		"mtime": "2026-08-08T14:22:09.379Z",
+		"size": 4213,
+		"path": "../public/assets/humanBots-DB633ST7.js"
+	},
+	"/assets/leaderboard-Btzv8Ilx.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"10a7-RvPn6XQwpwMC7wLDxAlp4Ig4vWk\"",
+		"mtime": "2026-08-08T14:22:09.381Z",
+		"size": 4263,
+		"path": "../public/assets/leaderboard-Btzv8Ilx.js"
 	},
 	"/assets/link-DlYYoJf6.js": {
 		"type": "text/javascript; charset=utf-8",
 		"etag": "\"6694-Qfnj6XX32BIkiSLtBQlGX2FHW4Q\"",
-		"mtime": "2026-08-08T07:10:30.606Z",
+		"mtime": "2026-08-08T14:22:09.383Z",
 		"size": 26260,
 		"path": "../public/assets/link-DlYYoJf6.js"
 	},
-	"/assets/routes-DpfnV1Y7.js": {
+	"/assets/MoveList-BK2LGLrv.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"1519-px62CKECtc/5NkuFyQqB0Ltymkw\"",
-		"mtime": "2026-08-08T07:10:30.611Z",
-		"size": 5401,
-		"path": "../public/assets/routes-DpfnV1Y7.js"
+		"etag": "\"1ec6-lyCjO0ZZfs9TEZYOjFRLOKElka8\"",
+		"mtime": "2026-08-08T14:22:09.372Z",
+		"size": 7878,
+		"path": "../public/assets/MoveList-BK2LGLrv.js"
 	},
-	"/assets/play._gameId-C5ml2VsX.js": {
+	"/assets/index-C5uXOZoA.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"2d7e-4XicIlybotaWJXYRYSEVuh3UNYs\"",
-		"mtime": "2026-08-08T07:10:30.608Z",
-		"size": 11646,
-		"path": "../public/assets/play._gameId-C5ml2VsX.js"
+		"etag": "\"7f6a1-Ea2voWGBKvSyfrT/7OdBlzmq6Es\"",
+		"mtime": "2026-08-08T14:22:09.371Z",
+		"size": 521889,
+		"path": "../public/assets/index-C5uXOZoA.js"
+	},
+	"/assets/online-B2_d-qHB.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"1039-79YxiM47Iq0IcT8xSvB0E7H3iFY\"",
+		"mtime": "2026-08-08T14:22:09.384Z",
+		"size": 4153,
+		"path": "../public/assets/online-B2_d-qHB.js"
+	},
+	"/assets/play._gameId-DL6A1QZ2.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"3963-CWcn0+fxXOG9Okhrq535r3Qxs10\"",
+		"mtime": "2026-08-08T14:22:09.385Z",
+		"size": 14691,
+		"path": "../public/assets/play._gameId-DL6A1QZ2.js"
 	},
 	"/assets/puzzles-BCsViUG6.js": {
 		"type": "text/javascript; charset=utf-8",
 		"etag": "\"242b-mggqtSJ2ZIihHYUKjBZmNV6C0gU\"",
-		"mtime": "2026-08-08T07:10:30.610Z",
+		"mtime": "2026-08-08T14:22:09.386Z",
 		"size": 9259,
 		"path": "../public/assets/puzzles-BCsViUG6.js"
 	},
-	"/assets/solo-CSNcqwI8.js": {
+	"/assets/routes-BHOAwNla.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"8728-Qv7pERkUJads+rDY0bfuMlmCEzI\"",
-		"mtime": "2026-08-08T07:10:30.612Z",
-		"size": 34600,
-		"path": "../public/assets/solo-CSNcqwI8.js"
+		"etag": "\"1519-6613oWwjh/khcnTZI2cFQ8iIPjs\"",
+		"mtime": "2026-08-08T14:22:09.387Z",
+		"size": 5401,
+		"path": "../public/assets/routes-BHOAwNla.js"
+	},
+	"/assets/solo-Bb40LgUp.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"2c3d-6ulj1e51SQDe/6QI37W2B9nPO1g\"",
+		"mtime": "2026-08-08T14:22:09.390Z",
+		"size": 11325,
+		"path": "../public/assets/solo-Bb40LgUp.js"
 	},
 	"/assets/sounds-BoFMYbmX.js": {
 		"type": "text/javascript; charset=utf-8",
 		"etag": "\"11ec-N7IvXGT5Qp/E1g+JFuCkJ6NZEic\"",
-		"mtime": "2026-08-08T07:10:30.613Z",
+		"mtime": "2026-08-08T14:22:09.392Z",
 		"size": 4588,
 		"path": "../public/assets/sounds-BoFMYbmX.js"
 	},
 	"/assets/useRouter-Dpb7RwMI.js": {
 		"type": "text/javascript; charset=utf-8",
 		"etag": "\"2144-OAWOWZt+i/sSs5fMTIk74KvSiew\"",
-		"mtime": "2026-08-08T07:10:30.615Z",
+		"mtime": "2026-08-08T14:22:09.393Z",
 		"size": 8516,
 		"path": "../public/assets/useRouter-Dpb7RwMI.js"
 	},
-	"/assets/styles-JfxUWkcF.css": {
+	"/assets/styles-BFqo-SFZ.css": {
 		"type": "text/css; charset=utf-8",
-		"etag": "\"13ee3-WNzkV/VECT3UijFOdwMb56graAo\"",
-		"mtime": "2026-08-08T07:10:30.618Z",
-		"size": 81635,
-		"path": "../public/assets/styles-JfxUWkcF.css"
+		"etag": "\"1360c-j6T7fPWXTRLynV9X3Xg3iuigEWI\"",
+		"mtime": "2026-08-08T14:22:09.394Z",
+		"size": 79372,
+		"path": "../public/assets/styles-BFqo-SFZ.css"
 	},
 	"/favicon.png": {
 		"type": "image/png",

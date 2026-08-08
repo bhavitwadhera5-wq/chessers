@@ -1,0 +1,190 @@
+import { n as __toESM } from "../_runtime.mjs";
+import { n as require_jsx_runtime, r as require_react } from "../_libs/react+tanstack__react-query.mjs";
+import { v as useNavigate } from "../_libs/@tanstack/react-router+[...].mjs";
+import { t as supabase } from "./client-BGr9uG5A.mjs";
+import { r as useAuth } from "./router-BZgWhZSc.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/online-BJMJyHAC.js
+var import_react = /* @__PURE__ */ __toESM(require_react());
+var import_jsx_runtime = require_jsx_runtime();
+function OnlineLobby() {
+	const navigate = useNavigate();
+	const { user, username } = useAuth();
+	const [games, setGames] = (0, import_react.useState)([]);
+	const [busy, setBusy] = (0, import_react.useState)(false);
+	const [message, setMessage] = (0, import_react.useState)(null);
+	(0, import_react.useEffect)(() => {
+		if (!user) return;
+		loadGames();
+		const channel = supabase.channel("online-games-lobby").on("postgres_changes", {
+			event: "*",
+			schema: "public",
+			table: "games"
+		}, () => {
+			loadGames();
+		}).subscribe();
+		return () => {
+			supabase.removeChannel(channel);
+		};
+	}, [user]);
+	async function loadGames() {
+		const { data, error } = await supabase.from("games").select("*").eq("status", "waiting").order("created_at", { ascending: false });
+		if (error) {
+			setMessage(error.message);
+			return;
+		}
+		setGames(data ?? []);
+	}
+	async function createGame() {
+		if (!user || !username) return;
+		setBusy(true);
+		setMessage(null);
+		const { data, error } = await supabase.from("games").insert({
+			white_player: user.id,
+			white_username: username,
+			status: "waiting",
+			fen: "start",
+			turn: "w"
+		}).select().single();
+		if (error) {
+			setMessage(error.message);
+			setBusy(false);
+			return;
+		}
+		setBusy(false);
+		navigate({
+			to: "/play/$gameId",
+			params: { gameId: data.id }
+		});
+	}
+	async function joinGame(game) {
+		if (!user || !username) return;
+		if (game.white_player === user.id) {
+			navigate({
+				to: "/play/$gameId",
+				params: { gameId: game.id }
+			});
+			return;
+		}
+		setBusy(true);
+		setMessage(null);
+		const { error } = await supabase.from("games").update({
+			black_player: user.id,
+			black_username: username,
+			status: "playing",
+			updated_at: (/* @__PURE__ */ new Date()).toISOString()
+		}).eq("id", game.id).eq("status", "waiting");
+		if (error) {
+			setMessage(error.message);
+			setBusy(false);
+			return;
+		}
+		setBusy(false);
+		navigate({
+			to: "/play/$gameId",
+			params: { gameId: game.id }
+		});
+	}
+	if (!user) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+		className: "flex min-h-screen items-center justify-center p-6",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "rounded-2xl border border-border bg-card p-8 text-center",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+				className: "text-2xl font-bold",
+				children: "Sign in required"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "mt-2 text-sm text-muted-foreground",
+				children: "Sign in before playing online."
+			})]
+		})
+	});
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+		className: "min-h-screen bg-background px-4 py-10",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "mx-auto max-w-2xl",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				onClick: () => navigate({ to: "/" }),
+				className: "mb-6 text-sm text-muted-foreground hover:text-foreground",
+				children: "← Back to Chessers"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-2xl border border-border bg-card p-6 shadow-lg",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "mb-6",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground",
+								children: "Multiplayer"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+								className: "mt-2 text-3xl font-bold",
+								children: "Play Online"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "mt-2 text-sm text-muted-foreground",
+								children: "Create a game or join another player's game."
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						onClick: createGame,
+						disabled: busy,
+						className: "w-full rounded-xl bg-primary px-5 py-4 text-left font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "block text-lg",
+							children: "♟️ Create Game"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "block text-sm font-normal opacity-80",
+							children: "Wait for another player to join."
+						})]
+					}),
+					message && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive",
+						children: message
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "mt-8",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "mb-3 flex items-center justify-between",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+								className: "font-semibold",
+								children: "Open Games"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: loadGames,
+								className: "text-sm text-muted-foreground hover:text-foreground",
+								children: "Refresh"
+							})]
+						}), games.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "rounded-xl border border-border p-6 text-center",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-sm text-muted-foreground",
+								children: "No open games right now."
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "mt-1 text-xs text-muted-foreground",
+								children: "Create a game and wait for someone to join."
+							})]
+						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "space-y-3",
+							children: games.map((game) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between rounded-xl border border-border p-4",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "font-semibold",
+									children: game.white_username ?? "Player"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs text-muted-foreground",
+									children: "Waiting for opponent"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									onClick: () => joinGame(game),
+									disabled: busy,
+									className: "rounded-lg bg-secondary px-4 py-2 text-sm font-semibold hover:opacity-80 disabled:opacity-50",
+									children: "Join"
+								})]
+							}, game.id))
+						})]
+					})
+				]
+			})]
+		})
+	});
+}
+//#endregion
+export { OnlineLobby as component };
