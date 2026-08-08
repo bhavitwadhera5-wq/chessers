@@ -974,12 +974,14 @@ function peg$parse(input, options) {
 					s1 = peg$FAILED;
 					if (peg$silentFails === 0) peg$fail(peg$e36);
 				}
-				if (s1 === peg$FAILED) if (input.charCodeAt(peg$currPos) === 42) {
-					s1 = peg$c17;
-					peg$currPos++;
-				} else {
-					s1 = peg$FAILED;
-					if (peg$silentFails === 0) peg$fail(peg$e37);
+				if (s1 === peg$FAILED) {
+					if (input.charCodeAt(peg$currPos) === 42) {
+						s1 = peg$c17;
+						peg$currPos++;
+					} else {
+						s1 = peg$FAILED;
+						if (peg$silentFails === 0) peg$fail(peg$e37);
+					}
 				}
 			}
 		}
@@ -1982,9 +1984,11 @@ function getDisambiguator(move, moves) {
 			if (file(from) === file(ambigFrom)) sameFile++;
 		}
 	}
-	if (ambiguities > 0) if (sameRank > 0 && sameFile > 0) return algebraic(from);
-	else if (sameFile > 0) return algebraic(from).charAt(1);
-	else return algebraic(from).charAt(0);
+	if (ambiguities > 0) {
+		if (sameRank > 0 && sameFile > 0) return algebraic(from);
+		else if (sameFile > 0) return algebraic(from).charAt(1);
+		else return algebraic(from).charAt(0);
+	}
 	return "";
 }
 function addMove(moves, color, from, to, piece, captured = void 0, flags = BITS.NORMAL) {
@@ -2134,27 +2138,29 @@ var Chess = class {
 		if (this._castling["b"] & BITS.QSIDE_CASTLE) castling += "q";
 		castling = castling || "-";
 		let epSquare = "-";
-		if (this._epSquare !== EMPTY) if (forceEnpassantSquare) epSquare = algebraic(this._epSquare);
-		else {
-			const bigPawnSquare = this._epSquare + (this._turn === "w" ? 16 : -16);
-			const squares = [bigPawnSquare + 1, bigPawnSquare - 1];
-			for (const square of squares) {
-				if (square & 136) continue;
-				const color = this._turn;
-				if (this._board[square]?.color === color && this._board[square]?.type === "p") {
-					this._makeMove({
-						color,
-						from: square,
-						to: this._epSquare,
-						piece: "p",
-						captured: "p",
-						flags: BITS.EP_CAPTURE
-					});
-					const isLegal = !this._isKingAttacked(color);
-					this._undoMove();
-					if (isLegal) {
-						epSquare = algebraic(this._epSquare);
-						break;
+		if (this._epSquare !== EMPTY) {
+			if (forceEnpassantSquare) epSquare = algebraic(this._epSquare);
+			else {
+				const bigPawnSquare = this._epSquare + (this._turn === "w" ? 16 : -16);
+				const squares = [bigPawnSquare + 1, bigPawnSquare - 1];
+				for (const square of squares) {
+					if (square & 136) continue;
+					const color = this._turn;
+					if (this._board[square]?.color === color && this._board[square]?.type === "p") {
+						this._makeMove({
+							color,
+							from: square,
+							to: this._epSquare,
+							piece: "p",
+							captured: "p",
+							flags: BITS.EP_CAPTURE
+						});
+						const isLegal = !this._isKingAttacked(color);
+						this._undoMove();
+						if (isLegal) {
+							epSquare = algebraic(this._epSquare);
+							break;
+						}
 					}
 				}
 			}
@@ -2317,14 +2323,18 @@ var Chess = class {
 			const index = difference + 119;
 			if (ATTACKS[index] & PIECE_MASKS[piece.type]) {
 				if (piece.type === "p") {
-					if (difference > 0 && piece.color === "w" || difference <= 0 && piece.color === "b") if (!verbose) return true;
-					else attackers.push(algebraic(i));
+					if (difference > 0 && piece.color === "w" || difference <= 0 && piece.color === "b") {
+						if (!verbose) return true;
+						else attackers.push(algebraic(i));
+					}
 					continue;
 				}
-				if (piece.type === "n" || piece.type === "k") if (!verbose) return true;
-				else {
-					attackers.push(algebraic(i));
-					continue;
+				if (piece.type === "n" || piece.type === "k") {
+					if (!verbose) return true;
+					else {
+						attackers.push(algebraic(i));
+						continue;
+					}
 				}
 				const offset = RAYS[index];
 				let j = i + offset;
@@ -2336,10 +2346,12 @@ var Chess = class {
 					}
 					j += offset;
 				}
-				if (!blocked) if (!verbose) return true;
-				else {
-					attackers.push(algebraic(i));
-					continue;
+				if (!blocked) {
+					if (!verbose) return true;
+					else {
+						attackers.push(algebraic(i));
+						continue;
+					}
 				}
 			}
 		}
@@ -2436,10 +2448,12 @@ var Chess = class {
 		let firstSquare = Ox88.a8;
 		let lastSquare = Ox88.h1;
 		let singleSquare = false;
-		if (forSquare) if (!(forSquare in Ox88)) return [];
-		else {
-			firstSquare = lastSquare = Ox88[forSquare];
-			singleSquare = true;
+		if (forSquare) {
+			if (!(forSquare in Ox88)) return [];
+			else {
+				firstSquare = lastSquare = Ox88[forSquare];
+				singleSquare = true;
+			}
 		}
 		for (let from = firstSquare; from <= lastSquare; from++) {
 			if (from & 136) {
@@ -2516,8 +2530,10 @@ var Chess = class {
 				break;
 			}
 		}
-		if (!moveObj) if (typeof move === "string") throw new Error(`Invalid move: ${move}`);
-		else throw new Error(`Invalid move: ${JSON.stringify(move)}`);
+		if (!moveObj) {
+			if (typeof move === "string") throw new Error(`Invalid move: ${move}`);
+			else throw new Error(`Invalid move: ${JSON.stringify(move)}`);
+		}
 		if (this.isCheck() && moveObj.flags & BITS.NULL_MOVE) throw new Error("Null move not allowed when in check");
 		const prettyMove = new Move(this, moveObj);
 		this._makeMove(moveObj);
@@ -2562,8 +2578,10 @@ var Chess = class {
 		this._hash ^= this._castlingKey();
 		if (move.captured) this._hash ^= this._pieceKey(move.to);
 		this._movePiece(move.from, move.to);
-		if (move.flags & BITS.EP_CAPTURE) if (this._turn === "b") this._clear(move.to - 16);
-		else this._clear(move.to + 16);
+		if (move.flags & BITS.EP_CAPTURE) {
+			if (this._turn === "b") this._clear(move.to - 16);
+			else this._clear(move.to + 16);
+		}
 		if (move.promotion) {
 			this._clear(move.to);
 			this._set(move.to, {
@@ -2649,18 +2667,20 @@ var Chess = class {
 				color: us
 			});
 		}
-		if (move.captured) if (move.flags & BITS.EP_CAPTURE) {
-			let index;
-			if (us === "b") index = move.to - 16;
-			else index = move.to + 16;
-			this._set(index, {
-				type: "p",
+		if (move.captured) {
+			if (move.flags & BITS.EP_CAPTURE) {
+				let index;
+				if (us === "b") index = move.to - 16;
+				else index = move.to + 16;
+				this._set(index, {
+					type: "p",
+					color: them
+				});
+			} else this._set(move.to, {
+				type: move.captured,
 				color: them
 			});
-		} else this._set(move.to, {
-			type: move.captured,
-			color: them
-		});
+		}
 		if (move.flags & (BITS.KSIDE_CASTLE | BITS.QSIDE_CASTLE)) {
 			let castlingTo, castlingFrom;
 			if (move.flags & BITS.KSIDE_CASTLE) {
@@ -2829,8 +2849,10 @@ var Chess = class {
 			if (move.promotion) output += "=" + move.promotion.toUpperCase();
 		}
 		this._makeMove(move);
-		if (this.isCheck()) if (this.isCheckmate()) output += "#";
-		else output += "+";
+		if (this.isCheck()) {
+			if (this.isCheckmate()) output += "#";
+			else output += "+";
+		}
 		this._undoMove();
 		return output;
 	}
@@ -2916,8 +2938,10 @@ var Chess = class {
 		const color = this._turn;
 		for (let i = 0, len = moves.length; i < len; i++) {
 			this._makeMove(moves[i]);
-			if (!this._isKingAttacked(color)) if (depth - 1 > 0) nodes += this.perft(depth - 1);
-			else nodes++;
+			if (!this._isKingAttacked(color)) {
+				if (depth - 1 > 0) nodes += this.perft(depth - 1);
+				else nodes++;
+			}
 			this._undoMove();
 		}
 		return nodes;
@@ -3039,8 +3063,10 @@ var Chess = class {
 		});
 	}
 	setCastlingRights(color, rights) {
-		for (const side of ["k", "q"]) if (rights[side] !== void 0) if (rights[side]) this._castling[color] |= SIDES[side];
-		else this._castling[color] &= ~SIDES[side];
+		for (const side of ["k", "q"]) if (rights[side] !== void 0) {
+			if (rights[side]) this._castling[color] |= SIDES[side];
+			else this._castling[color] &= ~SIDES[side];
+		}
 		this._updateCastlingRights();
 		const result = this.getCastlingRights(color);
 		return (rights["k"] === void 0 || rights["k"] === result["k"]) && (rights["q"] === void 0 || rights["q"] === result["q"]);

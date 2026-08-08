@@ -36,7 +36,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
 }
 //#endregion
 //#region node_modules/@supabase/auth-js/dist/module/lib/version.js
-var version = "2.112.0";
+var version = "2.112.2";
 //#endregion
 //#region node_modules/@supabase/auth-js/dist/module/lib/constants.js
 /** Current session will be checked for refresh at this interval. */
@@ -823,8 +823,10 @@ async function removePKCEVerifier(storage, storageKey, flowId) {
 	await removeItemAsync(storage, slotKey);
 	const index = await getPKCEFlowIndex(storage, storageKey);
 	const remaining = index.filter((id) => id !== flowId);
-	if (remaining.length !== index.length) if (remaining.length > 0) await setItemAsync(storage, pkceFlowIndexKey(storageKey), remaining);
-	else await removeItemAsync(storage, pkceFlowIndexKey(storageKey));
+	if (remaining.length !== index.length) {
+		if (remaining.length > 0) await setItemAsync(storage, pkceFlowIndexKey(storageKey), remaining);
+		else await removeItemAsync(storage, pkceFlowIndexKey(storageKey));
+	}
 	if (slotValue != null && slotValue === await getItemAsync(storage, legacyKey)) await removeItemAsync(storage, legacyKey);
 }
 /**
@@ -988,13 +990,14 @@ var NETWORK_ERROR_CODES = [
 async function handleError(error) {
 	var _a;
 	if (!looksLikeFetchResponse(error)) throw new AuthRetryableFetchError(_getErrorMessage(error), 0);
-	if (NETWORK_ERROR_CODES.includes(error.status)) throw new AuthRetryableFetchError(_getErrorMessage(error), error.status);
 	let data;
 	try {
 		data = await error.json();
 	} catch (e) {
+		if (NETWORK_ERROR_CODES.includes(error.status)) throw new AuthRetryableFetchError(error.statusText || `HTTP ${error.status}`, error.status);
 		throw new AuthUnknownError(_getErrorMessage(e), e);
 	}
+	if (NETWORK_ERROR_CODES.includes(error.status)) throw new AuthRetryableFetchError(_getErrorMessage(data), error.status);
 	let errorCode = void 0;
 	const responseAPIVersion = parseResponseAPIVersion(error);
 	if (responseAPIVersion && responseAPIVersion.getTime() >= API_VERSIONS["2024-01-01"].timestamp && typeof data === "object" && data && typeof data.code === "string") errorCode = data.code;
@@ -5552,10 +5555,12 @@ var GoTrueClient = class GoTrueClient {
 			let currentSession = null;
 			const maybeSession = await getItemAsync(this.storage, this.storageKey);
 			this._debug("#getSession()", "session from storage", maybeSession);
-			if (maybeSession !== null) if (this._isValidSession(maybeSession)) currentSession = maybeSession;
-			else {
-				this._debug("#getSession()", "session from storage is not valid");
-				await this._removeSession();
+			if (maybeSession !== null) {
+				if (this._isValidSession(maybeSession)) currentSession = maybeSession;
+				else {
+					this._debug("#getSession()", "session from storage is not valid");
+					await this._removeSession();
+				}
 			}
 			if (!currentSession) return {
 				data: { session: null },
@@ -7050,8 +7055,10 @@ var GoTrueClient = class GoTrueClient {
 			if (expiresWithMargin) {
 				if (this.autoRefreshToken && currentSession.refresh_token) {
 					const { error } = await this._callRefreshToken(currentSession.refresh_token);
-					if (error) if (isAuthRefreshDiscardedError(error)) this._debug(debugName, "refresh discarded by commit guard", error);
-					else this._debug(debugName, "refresh failed", error);
+					if (error) {
+						if (isAuthRefreshDiscardedError(error)) this._debug(debugName, "refresh discarded by commit guard", error);
+						else this._debug(debugName, "refresh failed", error);
+					}
 				}
 			} else if (currentSession.user && currentSession.user.__isUserNotAvailableProxy === true) try {
 				const { data, error: userError } = await this._getUser(currentSession.access_token);

@@ -97,7 +97,7 @@ var WebSocketFactory = class {
 };
 //#endregion
 //#region node_modules/@supabase/realtime-js/dist/module/lib/constants.js
-var DEFAULT_VERSION = `realtime-js/2.112.0`;
+var DEFAULT_VERSION = `realtime-js/2.112.2`;
 var VSN_1_0_0 = "1.0.0";
 var VSN_2_0_0 = "2.0.0";
 var DEFAULT_VSN = VSN_2_0_0;
@@ -1128,6 +1128,10 @@ var RealtimeChannel = class RealtimeChannel {
 	*   })
 	* ```
 	*
+	* Registering the same `postgres_changes` filter more than once on a channel is a no-op: the
+	* duplicate is ignored and an error is logged, since the server only ever creates one
+	* subscription per distinct filter.
+	*
 	* @example Listen to all database changes
 	* ```js
 	* supabase
@@ -1397,9 +1401,16 @@ var RealtimeChannel = class RealtimeChannel {
 	}
 	/** @internal */
 	_on(type, filter, callback) {
+		var _a;
 		const typeLower = type.toLocaleLowerCase();
 		const filterValue = filter === null || filter === void 0 ? void 0 : filter.filter;
 		if (filterValue instanceof RealtimePostgresFilterBuilder || typeof filterValue === "object" && filterValue !== null && typeof filterValue.build === "function") filter = Object.assign(Object.assign({}, filter), { filter: filterValue.build() });
+		if (typeLower === REALTIME_LISTEN_TYPES.POSTGRES_CHANGES) {
+			if ((_a = this.bindings[typeLower]) === null || _a === void 0 ? void 0 : _a.find((bind) => RealtimeChannel.isSamePostgresFilter(bind.filter, filter))) {
+				this.socket.log("error", `duplicate \`postgres_changes\` binding for ${this.topic} ignored`, filter);
+				return this;
+			}
+		}
 		const ref = this.channelAdapter.on(type, callback);
 		const binding = {
 			type: typeLower,
@@ -1440,15 +1451,16 @@ var RealtimeChannel = class RealtimeChannel {
 				"broadcast",
 				"presence",
 				"postgres_changes"
-			].includes(typeLower)) if ("id" in bind) {
-				const bindId = bind.id;
-				const bindEvent = (_b = bind.filter) === null || _b === void 0 ? void 0 : _b.event;
-				return bindId && ((_c = payload.ids) === null || _c === void 0 ? void 0 : _c.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_d = payload.data) === null || _d === void 0 ? void 0 : _d.type.toLocaleLowerCase()));
-			} else {
-				const bindEvent = (_f = (_e = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _e === void 0 ? void 0 : _e.event) === null || _f === void 0 ? void 0 : _f.toLocaleLowerCase();
-				return bindEvent === "*" || bindEvent === ((_g = payload === null || payload === void 0 ? void 0 : payload.event) === null || _g === void 0 ? void 0 : _g.toLocaleLowerCase());
-			}
-			else return bind.type.toLocaleLowerCase() === typeLower;
+			].includes(typeLower)) {
+				if ("id" in bind) {
+					const bindId = bind.id;
+					const bindEvent = (_b = bind.filter) === null || _b === void 0 ? void 0 : _b.event;
+					return bindId && ((_c = payload.ids) === null || _c === void 0 ? void 0 : _c.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_d = payload.data) === null || _d === void 0 ? void 0 : _d.type.toLocaleLowerCase()));
+				} else {
+					const bindEvent = (_f = (_e = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _e === void 0 ? void 0 : _e.event) === null || _f === void 0 ? void 0 : _f.toLocaleLowerCase();
+					return bindEvent === "*" || bindEvent === ((_g = payload === null || payload === void 0 ? void 0 : payload.event) === null || _g === void 0 ? void 0 : _g.toLocaleLowerCase());
+				}
+			} else return bind.type.toLocaleLowerCase() === typeLower;
 		});
 	}
 	/** @internal */
@@ -1491,6 +1503,17 @@ var RealtimeChannel = class RealtimeChannel {
 	*/
 	static isFilterValueEqual(serverValue, clientValue) {
 		return (serverValue !== null && serverValue !== void 0 ? serverValue : void 0) === (clientValue !== null && clientValue !== void 0 ? clientValue : void 0);
+	}
+	/**
+	* Two `postgres_changes` filters are the same when the server would collapse them into a single
+	* subscription.
+	* @internal
+	*/
+	static isSamePostgresFilter(a, b) {
+		var _a, _b, _c, _d;
+		const selectA = (_b = (_a = a === null || a === void 0 ? void 0 : a.select) === null || _a === void 0 ? void 0 : _a.join()) !== null && _b !== void 0 ? _b : void 0;
+		const selectB = (_d = (_c = b === null || b === void 0 ? void 0 : b.select) === null || _c === void 0 ? void 0 : _c.join()) !== null && _d !== void 0 ? _d : void 0;
+		return (a === null || a === void 0 ? void 0 : a.event) === (b === null || b === void 0 ? void 0 : b.event) && RealtimeChannel.isFilterValueEqual(a === null || a === void 0 ? void 0 : a.schema, b === null || b === void 0 ? void 0 : b.schema) && RealtimeChannel.isFilterValueEqual(a === null || a === void 0 ? void 0 : a.table, b === null || b === void 0 ? void 0 : b.table) && RealtimeChannel.isFilterValueEqual(a === null || a === void 0 ? void 0 : a.filter, b === null || b === void 0 ? void 0 : b.filter) && selectA === selectB;
 	}
 	/** @internal */
 	_getPayloadRecords(payload) {
@@ -1763,6 +1786,7 @@ var RealtimeClient = class {
 		this.serializer = new Serializer();
 		this._manuallySetToken = false;
 		this._authPromise = null;
+		this._authGeneration = 0;
 		this._workerHeartbeatTimer = void 0;
 		this._pendingWorkerHeartbeatRef = null;
 		this._pendingDisconnectTimer = null;
@@ -1937,14 +1961,18 @@ var RealtimeClient = class {
 	*
 	* On callback used, it will set the value of the token internal to the client.
 	*
-	* When a token is explicitly provided, it will be preserved across channel operations
-	* (including removeChannel and resubscribe). The `accessToken` callback will not be
-	* invoked until `setAuth()` is called without arguments.
+	* When a token is explicitly provided AND no `accessToken` callback is configured,
+	* it will be preserved across channel operations (including removeChannel and
+	* resubscribe) and the client stays in manual-token mode.
+	*
+	* When an `accessToken` callback IS configured, the callback is the source of truth:
+	* the client remains in callback mode and continues to refresh from it on heartbeat,
+	* even after a bootstrap/override `setAuth(token)` call.
 	*
 	* @param token A JWT string to override the token set on the client.
 	*
 	* @example Setting the authorization header
-	* // Use a manual token (preserved across resubscribes, ignores accessToken callback)
+	* // Use a manual token (preserved across resubscribes when no accessToken callback is set)
 	* client.realtime.setAuth('my-custom-jwt')
 	*
 	* // Switch back to using the accessToken callback
@@ -1953,11 +1981,13 @@ var RealtimeClient = class {
 	* @category Realtime
 	*/
 	async setAuth(token = null) {
-		this._authPromise = this._performAuth(token);
+		const authGeneration = ++this._authGeneration;
+		const authPromise = this._performAuth(token, authGeneration);
+		if (authGeneration === this._authGeneration) this._authPromise = authPromise;
 		try {
-			await this._authPromise;
+			await authPromise;
 		} finally {
-			this._authPromise = null;
+			if (this._authPromise === authPromise) this._authPromise = null;
 		}
 	}
 	/**
@@ -2036,7 +2066,7 @@ var RealtimeClient = class {
 	* Perform the actual auth operation
 	* @internal
 	*/
-	async _performAuth(token = null) {
+	async _performAuth(token, authGeneration) {
 		let tokenToSend;
 		let isManualToken = false;
 		if (token) {
@@ -2049,8 +2079,9 @@ var RealtimeClient = class {
 			tokenToSend = this.accessTokenValue;
 		}
 		else tokenToSend = this.accessTokenValue;
-		if (isManualToken) this._manuallySetToken = true;
-		else if (this.accessToken) this._manuallySetToken = false;
+		if (authGeneration !== this._authGeneration) return;
+		if (this.accessToken) this._manuallySetToken = false;
+		else if (isManualToken) this._manuallySetToken = true;
 		if (this.accessTokenValue != tokenToSend) {
 			this.accessTokenValue = tokenToSend;
 			this.channels.forEach((channel) => {
@@ -2058,7 +2089,7 @@ var RealtimeClient = class {
 					access_token: tokenToSend,
 					version: DEFAULT_VERSION
 				};
-				tokenToSend && channel.updateJoinPayload(payload);
+				channel.updateJoinPayload(payload);
 				if (channel.joinedOnce && channel.channelAdapter.isJoined()) channel.channelAdapter.push(CHANNEL_EVENTS.access_token, { access_token: tokenToSend });
 			});
 		}

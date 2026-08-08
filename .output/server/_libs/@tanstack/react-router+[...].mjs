@@ -484,14 +484,15 @@ function parseSegment(path, start, output = /* @__PURE__ */ new Uint16Array(6)) 
 * @param node The current segment node in the trie to populate.
 * @param onRoute Callback invoked for each route processed.
 */
-function parseSegments(defaultCaseSensitive, data, route, start, node, depth, onRoute) {
+function parseSegments(defaultCaseSensitive, data, route, start, node, depth, dynamicListsToSort, onRoute) {
 	onRoute?.(route);
 	let cursor = start;
 	{
 		const path = route.fullPath ?? route.from;
+		const options = route.options;
 		const length = path.length;
-		const caseSensitive = route.options?.caseSensitive ?? defaultCaseSensitive;
-		const parseParams = route.options?.params?.parse ?? route.options?.parseParams;
+		const caseSensitive = options?.caseSensitive ?? defaultCaseSensitive;
+		const parseParams = options?.params?.parse ?? options?.parseParams;
 		while (cursor < length) {
 			const segment = parseSegment(path, cursor, data);
 			let nextNode;
@@ -499,89 +500,58 @@ function parseSegments(defaultCaseSensitive, data, route, start, node, depth, on
 			const end = segment[5];
 			cursor = end + 1;
 			depth++;
-			switch (segment[0]) {
+			const kind = segment[0];
+			switch (kind) {
 				case 0: {
 					const value = path.substring(segment[2], segment[3]);
-					if (caseSensitive) {
-						const existingNode = node.static?.get(value);
-						if (existingNode) nextNode = existingNode;
-						else {
-							node.static ??= /* @__PURE__ */ new Map();
-							const next = createStaticNode(route.fullPath ?? route.from);
-							next.parent = node;
-							next.depth = depth;
-							nextNode = next;
-							node.static.set(value, next);
-						}
-					} else {
-						const name = value.toLowerCase();
-						const existingNode = node.staticInsensitive?.get(name);
-						if (existingNode) nextNode = existingNode;
-						else {
-							node.staticInsensitive ??= /* @__PURE__ */ new Map();
-							const next = createStaticNode(route.fullPath ?? route.from);
-							next.parent = node;
-							next.depth = depth;
-							nextNode = next;
-							node.staticInsensitive.set(name, next);
-						}
+					let name = value;
+					let staticChildren;
+					if (caseSensitive) staticChildren = node.static ??= /* @__PURE__ */ new Map();
+					else {
+						name = value.toLowerCase();
+						staticChildren = node.staticInsensitive ??= /* @__PURE__ */ new Map();
 					}
-					break;
-				}
-				case 1: {
-					const prefix_raw = path.substring(start, segment[1]);
-					const suffix_raw = path.substring(segment[4], end);
-					const actuallyCaseSensitive = caseSensitive && !!(prefix_raw || suffix_raw);
-					const prefix = !prefix_raw ? void 0 : actuallyCaseSensitive ? prefix_raw : prefix_raw.toLowerCase();
-					const suffix = !suffix_raw ? void 0 : actuallyCaseSensitive ? suffix_raw : suffix_raw.toLowerCase();
-					const existingNode = !parseParams && node.dynamic?.find((s) => !s.parse && s.caseSensitive === actuallyCaseSensitive && s.prefix === prefix && s.suffix === suffix);
+					const existingNode = staticChildren.get(name);
 					if (existingNode) nextNode = existingNode;
 					else {
-						const next = createDynamicNode(1, route.fullPath ?? route.from, actuallyCaseSensitive, prefix, suffix);
-						nextNode = next;
-						next.depth = depth;
+						const next = createStaticNode(path);
 						next.parent = node;
-						node.dynamic ??= [];
-						node.dynamic.push(next);
+						next.depth = depth;
+						nextNode = next;
+						staticChildren.set(name, next);
 					}
 					break;
 				}
-				case 3: {
-					const prefix_raw = path.substring(start, segment[1]);
-					const suffix_raw = path.substring(segment[4], end);
-					const actuallyCaseSensitive = caseSensitive && !!(prefix_raw || suffix_raw);
-					const prefix = !prefix_raw ? void 0 : actuallyCaseSensitive ? prefix_raw : prefix_raw.toLowerCase();
-					const suffix = !suffix_raw ? void 0 : actuallyCaseSensitive ? suffix_raw : suffix_raw.toLowerCase();
-					const existingNode = !parseParams && node.optional?.find((s) => !s.parse && s.caseSensitive === actuallyCaseSensitive && s.prefix === prefix && s.suffix === suffix);
-					if (existingNode) nextNode = existingNode;
-					else {
-						const next = createDynamicNode(3, route.fullPath ?? route.from, actuallyCaseSensitive, prefix, suffix);
-						nextNode = next;
-						next.parent = node;
-						next.depth = depth;
-						node.optional ??= [];
-						node.optional.push(next);
-					}
-					break;
-				}
+				case 1:
+				case 3:
 				case 2: {
 					const prefix_raw = path.substring(start, segment[1]);
 					const suffix_raw = path.substring(segment[4], end);
 					const actuallyCaseSensitive = caseSensitive && !!(prefix_raw || suffix_raw);
 					const prefix = !prefix_raw ? void 0 : actuallyCaseSensitive ? prefix_raw : prefix_raw.toLowerCase();
 					const suffix = !suffix_raw ? void 0 : actuallyCaseSensitive ? suffix_raw : suffix_raw.toLowerCase();
-					const next = createDynamicNode(2, route.fullPath ?? route.from, actuallyCaseSensitive, prefix, suffix);
-					nextNode = next;
-					next.parent = node;
-					next.depth = depth;
-					node.wildcard ??= [];
-					node.wildcard.push(next);
+					const siblings = kind === 1 ? node.dynamic : kind === 3 ? node.optional : node.wildcard;
+					const existingNode = kind !== 2 && !parseParams && siblings?.find((s) => !s.parse && s.caseSensitive === actuallyCaseSensitive && s.prefix === prefix && s.suffix === suffix);
+					if (existingNode) nextNode = existingNode;
+					else {
+						const next = createDynamicNode(kind, path, actuallyCaseSensitive, prefix, suffix);
+						nextNode = next;
+						next.parent = node;
+						next.depth = depth;
+						let nodes;
+						if (kind === 1) nodes = node.dynamic ??= [];
+						else if (kind === 3) nodes = node.optional ??= [];
+						else nodes = node.wildcard ??= [];
+						nodes.push(next);
+						if (nodes.length === 2) dynamicListsToSort?.push(nodes);
+					}
+					break;
 				}
 			}
 			node = nextNode;
 		}
 		if (parseParams && route.children && !route.isRoot && route.id && route.id.charCodeAt(route.id.lastIndexOf("/") + 1) === 95) {
-			const pathlessNode = createStaticNode(route.fullPath ?? route.from);
+			const pathlessNode = createStaticNode(path);
 			pathlessNode.kind = SEGMENT_TYPE_PATHLESS;
 			pathlessNode.parent = node;
 			depth++;
@@ -592,7 +562,7 @@ function parseSegments(defaultCaseSensitive, data, route, start, node, depth, on
 		}
 		const isLeaf = (route.path || !route.children) && !route.isRoot;
 		if (isLeaf && path.endsWith("/")) {
-			const indexNode = createStaticNode(route.fullPath ?? route.from);
+			const indexNode = createStaticNode(path);
 			indexNode.kind = SEGMENT_TYPE_INDEX;
 			indexNode.parent = node;
 			depth++;
@@ -601,13 +571,13 @@ function parseSegments(defaultCaseSensitive, data, route, start, node, depth, on
 			node = indexNode;
 		}
 		node.parse = parseParams ?? null;
-		node.priority = route.options?.params?.priority ?? 0;
+		node.priority = options?.params?.priority ?? 0;
 		if (isLeaf && !node.route) {
 			node.route = route;
-			node.fullPath = route.fullPath ?? route.from;
+			node.fullPath = path;
 		}
 	}
-	if (route.children) for (const child of route.children) parseSegments(defaultCaseSensitive, data, child, cursor, node, depth, onRoute);
+	if (route.children) for (const child of route.children) parseSegments(defaultCaseSensitive, data, child, cursor, node, depth, dynamicListsToSort, onRoute);
 }
 function sortDynamic(a, b) {
 	if (a.parse && !b.parse) return -1;
@@ -628,23 +598,6 @@ function sortDynamic(a, b) {
 	if (a.caseSensitive && !b.caseSensitive) return -1;
 	if (!a.caseSensitive && b.caseSensitive) return 1;
 	return 0;
-}
-function sortTreeNodes(node) {
-	if (node.pathless) for (const child of node.pathless) sortTreeNodes(child);
-	if (node.static) for (const child of node.static.values()) sortTreeNodes(child);
-	if (node.staticInsensitive) for (const child of node.staticInsensitive.values()) sortTreeNodes(child);
-	if (node.dynamic?.length) {
-		node.dynamic.sort(sortDynamic);
-		for (const child of node.dynamic) sortTreeNodes(child);
-	}
-	if (node.optional?.length) {
-		node.optional.sort(sortDynamic);
-		for (const child of node.optional) sortTreeNodes(child);
-	}
-	if (node.wildcard?.length) {
-		node.wildcard.sort(sortDynamic);
-		for (const child of node.wildcard) sortTreeNodes(child);
-	}
 }
 function createStaticNode(fullPath) {
 	return {
@@ -692,8 +645,9 @@ function createDynamicNode(kind, fullPath, caseSensitive, prefix, suffix) {
 function processRouteMasks(routeList, processedTree) {
 	const segmentTree = createStaticNode("/");
 	const data = /* @__PURE__ */ new Uint16Array(6);
-	for (const route of routeList) parseSegments(false, data, route, 1, segmentTree, 0);
-	sortTreeNodes(segmentTree);
+	const dynamicListsToSort = [];
+	for (const route of routeList) parseSegments(false, data, route, 1, segmentTree, 0, dynamicListsToSort);
+	for (const nodes of dynamicListsToSort) nodes.sort(sortDynamic);
 	processedTree.masksTree = segmentTree;
 	processedTree.flatCache = createLRUCache(1e3);
 }
@@ -750,10 +704,11 @@ function trimPathRight$1(path) {
 function processRouteTree(routeTree, caseSensitive = false, initRoute) {
 	const segmentTree = createStaticNode(routeTree.fullPath);
 	const data = /* @__PURE__ */ new Uint16Array(6);
+	const dynamicListsToSort = [];
 	const routesById = {};
 	const routesByPath = {};
 	let index = 0;
-	parseSegments(caseSensitive, data, routeTree, 1, segmentTree, 0, (route) => {
+	parseSegments(caseSensitive, data, routeTree, 1, segmentTree, 0, dynamicListsToSort, (route) => {
 		initRoute?.(route, index);
 		if (route.id in routesById) invariant();
 		routesById[route.id] = route;
@@ -763,7 +718,7 @@ function processRouteTree(routeTree, caseSensitive = false, initRoute) {
 		}
 		index++;
 	});
-	sortTreeNodes(segmentTree);
+	for (const nodes of dynamicListsToSort) nodes.sort(sortDynamic);
 	return {
 		processedTree: {
 			segmentTree,
@@ -889,7 +844,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 		node: segmentTree,
 		index: 1,
 		skipped: 0,
-		depth: 1,
 		statics: 0,
 		dynamics: 0,
 		optionals: 0
@@ -898,7 +852,7 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 	let bestMatch = null;
 	while (stack.length) {
 		const frame = stack.pop();
-		const { node, index, skipped, depth, statics, dynamics, optionals } = frame;
+		const { node, index, skipped, statics, dynamics, optionals } = frame;
 		let { extract, rawParams } = frame;
 		if (node.kind === 2 && node.route && !isFrameMoreSpecific(bestMatch, frame)) continue;
 		if (node.parse) {
@@ -919,7 +873,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				node: node.index,
 				index,
 				skipped,
-				depth: depth + 1,
 				statics,
 				dynamics,
 				optionals,
@@ -951,7 +904,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				node: segment,
 				index: partsLength,
 				skipped,
-				depth: depth + 1,
 				statics,
 				dynamics,
 				optionals,
@@ -960,15 +912,13 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 			});
 		}
 		if (node.optional) {
-			const nextSkipped = skipped | 1 << depth;
-			const nextDepth = depth + 1;
+			const nextSkipped = skipped | 1 << node.depth + 1;
 			for (let i = node.optional.length - 1; i >= 0; i--) {
 				const segment = node.optional[i];
 				stack.push({
 					node: segment,
 					index,
 					skipped: nextSkipped,
-					depth: nextDepth,
 					statics,
 					dynamics,
 					optionals,
@@ -988,7 +938,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 					node: segment,
 					index: index + 1,
 					skipped,
-					depth: nextDepth,
 					statics,
 					dynamics,
 					optionals: optionals + segmentScore(partsLength, index),
@@ -1009,7 +958,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				node: segment,
 				index: index + 1,
 				skipped,
-				depth: depth + 1,
 				statics,
 				dynamics: dynamics + segmentScore(partsLength, index),
 				optionals,
@@ -1023,7 +971,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				node: match,
 				index: index + 1,
 				skipped,
-				depth: depth + 1,
 				statics: statics + segmentScore(partsLength, index),
 				dynamics,
 				optionals,
@@ -1037,7 +984,6 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				node: match,
 				index: index + 1,
 				skipped,
-				depth: depth + 1,
 				statics: statics + segmentScore(partsLength, index),
 				dynamics,
 				optionals,
@@ -1045,22 +991,18 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				rawParams
 			});
 		}
-		if (node.pathless) {
-			const nextDepth = depth + 1;
-			for (let i = node.pathless.length - 1; i >= 0; i--) {
-				const segment = node.pathless[i];
-				stack.push({
-					node: segment,
-					index,
-					skipped,
-					depth: nextDepth,
-					statics,
-					dynamics,
-					optionals,
-					extract,
-					rawParams
-				});
-			}
+		if (node.pathless) for (let i = node.pathless.length - 1; i >= 0; i--) {
+			const segment = node.pathless[i];
+			stack.push({
+				node: segment,
+				index,
+				skipped,
+				statics,
+				dynamics,
+				optionals,
+				extract,
+				rawParams
+			});
 		}
 	}
 	if (bestMatch) return bestMatch;
@@ -1098,7 +1040,7 @@ function validateParseParams(path, parts, frame) {
 }
 function isFrameMoreSpecific(prev, next) {
 	if (!prev) return true;
-	return next.statics > prev.statics || next.statics === prev.statics && (next.dynamics > prev.dynamics || next.dynamics === prev.dynamics && (next.optionals > prev.optionals || next.optionals === prev.optionals && ((next.node.kind === SEGMENT_TYPE_INDEX) > (prev.node.kind === SEGMENT_TYPE_INDEX) || next.node.kind === SEGMENT_TYPE_INDEX === (prev.node.kind === SEGMENT_TYPE_INDEX) && next.depth > prev.depth)));
+	return next.statics > prev.statics || next.statics === prev.statics && (next.dynamics > prev.dynamics || next.dynamics === prev.dynamics && (next.optionals > prev.optionals || next.optionals === prev.optionals && ((next.node.kind === SEGMENT_TYPE_INDEX) > (prev.node.kind === SEGMENT_TYPE_INDEX) || next.node.kind === SEGMENT_TYPE_INDEX === (prev.node.kind === SEGMENT_TYPE_INDEX) && next.node.depth > prev.node.depth)));
 }
 //#endregion
 //#region node_modules/@tanstack/router-core/dist/esm/path.js
@@ -1785,24 +1727,24 @@ var RouterCore = class {
 			return this.matchRoutesInternal(pathnameOrNext, locationSearchOrOpts);
 		};
 		this.getMatchedRoutes = (pathname) => {
-			const routeParams = Object.create(null);
+			const rawParams = Object.create(null);
 			const match = findRouteMatch(trimPathRight(pathname), this.processedTree, true);
-			if (match) Object.assign(routeParams, match.rawParams);
-			return {
-				matchedRoutes: match?.branch || [this.routesById["__root__"]],
-				routeParams,
-				foundRoute: match?.route
-			};
+			if (match) Object.assign(rawParams, match.rawParams);
+			return [
+				match?.branch || [this.routesById["__root__"]],
+				rawParams,
+				match?.route
+			];
 		};
 		this.buildLocation = (opts) => {
 			const build = (dest = {}) => {
 				const currentLocation = dest._fromLocation || this._pendingLocation || this.latestLocation;
 				const lightweightResult = this.matchRoutesLightweight(currentLocation);
 				if (dest.from && false);
-				const defaultedFromPath = dest.unsafeRelative === "path" ? currentLocation.pathname : dest.from ?? lightweightResult.fullPath;
+				const defaultedFromPath = dest.unsafeRelative === "path" ? currentLocation.pathname : dest.from ?? lightweightResult[1];
 				const destTo = dest.to ? `${dest.to}` : void 0;
-				const fromSearch = lightweightResult.search;
-				const fromParams = Object.assign(Object.create(null), lightweightResult.params);
+				const fromSearch = lightweightResult[2];
+				const fromParams = Object.assign(Object.create(null), lightweightResult[3]);
 				const sourcePath = destTo?.charCodeAt(0) === 47 ? "/" : this.resolvePathWithBase(defaultedFromPath, ".");
 				const nextTo = destTo ? this.resolvePathWithBase(sourcePath, destTo) : sourcePath;
 				const nextParams = resolveNextParams(dest.params, fromParams);
@@ -1811,9 +1753,9 @@ var RouterCore = class {
 				if (destRoute) destRoutes = this.getRouteBranch(destRoute);
 				else if (nextTo.includes("$")) destRoutes = [];
 				else {
-					const destMatchResult = this.getMatchedRoutes(nextTo);
-					destRoutes = destMatchResult.matchedRoutes;
-					if (this.options.notFoundRoute && (!destMatchResult.foundRoute || destMatchResult.foundRoute.path !== "/" && destMatchResult.routeParams["**"])) destRoutes = [...destRoutes, this.options.notFoundRoute];
+					const [matchedRoutes, rawParams, foundRoute] = this.getMatchedRoutes(nextTo);
+					destRoutes = matchedRoutes;
+					if (this.options.notFoundRoute && (!foundRoute || foundRoute.path !== "/" && rawParams["**"])) destRoutes = [...destRoutes, this.options.notFoundRoute];
 				}
 				if (destRoutes.length && hasKeys(nextParams)) for (const route of destRoutes) {
 					const fn = route.options.params?.stringify ?? route.options.stringifyParams;
@@ -2171,11 +2113,10 @@ var RouterCore = class {
 		return branch;
 	}
 	matchRoutesInternal(next, opts) {
-		const matchedRoutesResult = this.getMatchedRoutes(next.pathname);
-		const { foundRoute, routeParams } = matchedRoutesResult;
-		let { matchedRoutes } = matchedRoutesResult;
+		const [initialMatchedRoutes, rawParams, foundRoute] = this.getMatchedRoutes(next.pathname);
+		let matchedRoutes = initialMatchedRoutes;
 		let isGlobalNotFound = false;
-		if (foundRoute ? foundRoute.path !== "/" && routeParams["**"] : trimPathRight(next.pathname)) if (this.options.notFoundRoute) matchedRoutes = [...matchedRoutes, this.options.notFoundRoute];
+		if (foundRoute ? foundRoute.path !== "/" && rawParams["**"] : trimPathRight(next.pathname)) if (this.options.notFoundRoute) matchedRoutes = [...matchedRoutes, this.options.notFoundRoute];
 		else isGlobalNotFound = true;
 		const _notFoundRouteId = isGlobalNotFound ? findGlobalNotFoundRouteId(this.options.notFoundMode, matchedRoutes) : void 0;
 		const matches = new Array(matchedRoutes.length);
@@ -2184,6 +2125,7 @@ var RouterCore = class {
 			const match = committed[index];
 			return match?.routeId === route.id ? match : route === this.options.notFoundRoute ? committed.find((candidate) => candidate.routeId === route.id) : void 0;
 		};
+		let strictParams;
 		for (let index = 0; index < matchedRoutes.length; index++) {
 			const route = matchedRoutes[index];
 			const parentMatch = matches[index - 1];
@@ -2223,14 +2165,14 @@ var RouterCore = class {
 			}
 			const { interpolatedPath, usedParams } = interpolatePath({
 				path: route.fullPath,
-				params: routeParams,
+				params: rawParams,
 				decoder: this.pathParamsDecoder,
 				server: this.isServer
 			});
 			const matchId = route.id + interpolatedPath + loaderDepsHash;
 			const previousMatch = previousAt(route, index);
 			const existingMatch = this._cache.get(matchId) ?? (previousMatch?.id === matchId ? previousMatch : void 0);
-			const strictParams = existingMatch?._strictParams ?? usedParams;
+			strictParams = existingMatch?._strictParams ?? Object.assign(usedParams, strictParams);
 			let paramsError;
 			if (!existingMatch) try {
 				extractStrictParams(route, strictParams);
@@ -2239,14 +2181,11 @@ var RouterCore = class {
 				else paramsError = new PathParamError(err.message, { cause: err });
 				if (opts?.throwOnError) throw paramsError;
 			}
-			Object.assign(routeParams, strictParams);
 			const cause = previousMatch ? "stay" : "enter";
 			let match;
 			if (existingMatch) match = {
 				...existingMatch,
 				cause,
-				params: previousMatch?.params ?? routeParams,
-				_strictParams: strictParams,
 				search: previousMatch ? nullReplaceEqualDeep(previousMatch.search, preMatchSearch) : nullReplaceEqualDeep(existingMatch.search, preMatchSearch),
 				_strictSearch: strictMatchSearch,
 				searchError
@@ -2258,7 +2197,7 @@ var RouterCore = class {
 					ssr: void 0,
 					index,
 					routeId: route.id,
-					params: previousMatch?.params ?? routeParams,
+					params: previousMatch?.params ?? strictParams,
 					_strictParams: strictParams,
 					pathname: interpolatedPath,
 					updatedAt: Date.now(),
@@ -2286,7 +2225,7 @@ var RouterCore = class {
 		}
 		for (let index = 0; index < matches.length; index++) {
 			const match = matches[index];
-			match.params = match.cause === "stay" ? nullReplaceEqualDeep(match.params, routeParams) : routeParams;
+			match.params = match.cause === "stay" ? nullReplaceEqualDeep(match.params, strictParams) : strictParams;
 			if (opts?._controller) match.context = {};
 		}
 		return matches;
@@ -2302,7 +2241,7 @@ var RouterCore = class {
 		const lastStateMatchId = lastStateMatch?.id;
 		const cached = this.lightweightCache.get(location);
 		if (cached && cached[0] === lastStateMatchId) return cached[1];
-		const { matchedRoutes, routeParams } = this.getMatchedRoutes(location.pathname);
+		const [matchedRoutes, rawParams] = this.getMatchedRoutes(location.pathname);
 		const lastRoute = last(matchedRoutes);
 		const accumulatedSearch = { ...location.search };
 		for (const route of matchedRoutes) try {
@@ -2312,18 +2251,18 @@ var RouterCore = class {
 		let params;
 		if (canReuseParams) params = lastStateMatch.params;
 		else {
-			const strictParams = Object.assign(Object.create(null), routeParams);
+			const strictParams = Object.assign(Object.create(null), rawParams);
 			for (const route of matchedRoutes) try {
 				extractStrictParams(route, strictParams);
 			} catch {}
 			params = strictParams;
 		}
-		const result = {
+		const result = [
 			matchedRoutes,
-			fullPath: lastRoute.fullPath,
-			search: accumulatedSearch,
+			lastRoute.fullPath,
+			accumulatedSearch,
 			params
-		};
+		];
 		this.lightweightCache.set(location, [lastStateMatchId, result]);
 		return result;
 	}
@@ -2524,7 +2463,7 @@ function navigateFrom$1(router, location) {
 		_fromLocation: location
 	});
 }
-async function contextualize$1(router, lane, options, end, planSuccessfulLane) {
+async function contextualize$1(router, lane, options, end, planSuccessfulLane, retainedEnd) {
 	const [location, matches] = lane;
 	const signal = options[0].signal;
 	const preload = !!options[4];
@@ -2579,7 +2518,7 @@ async function contextualize$1(router, lane, options, end, planSuccessfulLane) {
 			...router.options.additionalContext
 		};
 		const previousStatus = match.status;
-		if (previousStatus === "success") match.status = "pending";
+		if (previousStatus === "success" && index >= retainedEnd) match.status = "pending";
 		options[8]?.();
 		try {
 			setFetching(router, match, "beforeLoad", options[0]);
@@ -2625,21 +2564,16 @@ function releaseFlight(router, match) {
 * Not passing in a `next` ownership recipient
 * is equivalent to discarding the match resources
 */
-function transferMatchResources(router, previous, next) {
+function transferMatchResources(router, previous, next, deferSameIdFlight) {
 	const abort = [];
 	for (const match of previous) if (!next?.includes(match)) {
 		const flight = match._flight;
 		match._flight = void 0;
-		const controller = releaseOwnedFlight(router, match, flight);
-		if (controller) abort.push(controller);
-	}
-	for (const controller of abort) controller.abort();
-}
-function releaseUnownedFlights(router) {
-	const abort = [];
-	for (const [id, flight] of router._flights ?? []) if (!flight[2]) {
-		router._flights.delete(id);
-		abort.push(flight[1]);
+		if (deferSameIdFlight && flight?.[2] === 1 && router._flights?.get(match.id) === flight && next?.some((candidate) => candidate.id === match.id)) flight[2] = 0;
+		else {
+			const controller = releaseOwnedFlight(router, match, flight);
+			if (controller) abort.push(controller);
+		}
 	}
 	for (const controller of abort) controller.abort();
 }
@@ -2743,7 +2677,7 @@ function getParentSnapshot(match, outcome) {
 	};
 	return match;
 }
-function createLoaderTask$1(router, lane, index, tasks, semanticParent, options) {
+function createLoaderTask$1(router, lane, index, tasks, semanticParent, options, retainedEnd) {
 	const match = lane[1][index];
 	const route = getRoute$1(router, match);
 	const preload = !!options[4];
@@ -2789,7 +2723,7 @@ function createLoaderTask$1(router, lane, index, tasks, semanticParent, options)
 		const acceptedFlight = match._flight;
 		match._flight = donor;
 		releaseOwnedFlight(router, match, acceptedFlight)?.abort();
-		if (match.status === "success") match.status = "pending";
+		if (match.status === "success" && index >= retainedEnd) match.status = "pending";
 		options[8]?.();
 	}
 	if (!loaded) match.isFetching = false;
@@ -2939,8 +2873,9 @@ async function reduceLane(router, lane, tasks, controller, redirects, settlement
 			}
 		};
 		install();
+		const route = getRoute$1(router, match);
 		try {
-			await waitFor$1(outcome ? Promise.resolve().then(() => loadRouteChunk(getRoute$1(router, match), kind === ERROR$1 ? "errorComponent" : "notFoundComponent")) : Promise.all([loadRouteChunk(getRoute$1(router, match)), loadRouteChunk(getRoute$1(router, match), "notFoundComponent")]), controller.signal);
+			await waitFor$1(outcome ? Promise.resolve().then(() => loadRouteChunk(route, kind === ERROR$1 ? "errorComponent" : "notFoundComponent")) : Promise.all([loadRouteChunk(route), loadRouteChunk(route, "notFoundComponent")]), controller.signal);
 		} catch (cause) {
 			if (cause === controller.signal) {
 				discardBackground(router, lane);
@@ -2993,6 +2928,7 @@ async function projectLane$1(router, lane, signal, start = 0, end = lane[1].leng
 }
 async function executeClientLane(router, location, matches, options) {
 	const matched = [location, matches];
+	const presented = router.stores.matches.get();
 	let plannedBoundary = matches.findIndex((match) => match._notFound);
 	if (router.options.notFoundMode !== "root" && plannedBoundary >= 0) {
 		const boundary = await getNotFoundBoundary$1(router, matched[1], void 0, options[0].signal, plannedBoundary);
@@ -3003,16 +2939,24 @@ async function executeClientLane(router, location, matches, options) {
 		plannedBoundary = boundary;
 	}
 	let end = plannedBoundary < 0 ? matches.length : plannedBoundary + 1;
+	let retainedEnd = 0;
+	while (retainedEnd < end && retainedEnd !== plannedBoundary) {
+		const match = matches[retainedEnd];
+		const committed = options[3][retainedEnd];
+		const visible = presented[retainedEnd];
+		if (committed?.id !== match.id || committed.status !== "success" || committed._notFound || match.preload || visible?.id !== match.id || visible.status !== "success" || visible._notFound) break;
+		retainedEnd++;
+	}
 	const tasks = [];
 	const start = options[7] ?? 0;
 	let semanticParent = start ? Promise.resolve(matched[1][start - 1]) : void 0;
 	const planSuccessfulLane = () => {
 		for (let index = start; index < end; index++) {
 			if (options[0].signal.aborted) break;
-			semanticParent = createLoaderTask$1(router, matched, index, tasks, semanticParent, options);
+			semanticParent = createLoaderTask$1(router, matched, index, tasks, semanticParent, options, retainedEnd);
 		}
 	};
-	const failure = await contextualize$1(router, matched, options, end, planSuccessfulLane);
+	const failure = await contextualize$1(router, matched, options, end, planSuccessfulLane, retainedEnd);
 	if (failure) {
 		options[5] = true;
 		end = failure[0];
@@ -3022,7 +2966,14 @@ async function executeClientLane(router, location, matches, options) {
 		} else if (failure[1][0] >= REDIRECTED$1) end = 0;
 		planSuccessfulLane();
 	}
-	if (options[2]() && !options[4]) releaseUnownedFlights(router);
+	if (options[2]() && !options[4]) {
+		const abort = [];
+		for (const [id, flight] of router._flights ?? []) if (!flight[2]) {
+			router._flights.delete(id);
+			abort.push(flight[1]);
+		}
+		for (const controller of abort) controller.abort();
+	}
 	let reduced;
 	try {
 		const reduction = reduceLane(router, matched, tasks, options[0], options[1], settleTasks(tasks, failure, matched[2]), options[8]);
@@ -4972,23 +4923,12 @@ function createRootRoute(options) {
 * @link https://tanstack.com/router/latest/docs/framework/react/api/router/createFileRouteFunction
 */
 function createFileRoute(path) {
-	return new FileRoute(path, { silent: true }).createRoute;
+	return (options) => {
+		const route = createRoute(options);
+		route.isRoot = false;
+		return route;
+	};
 }
-/** 
-@deprecated It's no longer recommended to use the `FileRoute` class directly.
-Instead, use `createFileRoute('/path/to/file')(options)` to create a file route.
-*/
-var FileRoute = class {
-	constructor(path, _opts) {
-		this.path = path;
-		this.createRoute = (options) => {
-			const route = createRoute(options);
-			route.isRoot = false;
-			return route;
-		};
-		this.silent = _opts?.silent;
-	}
-};
 //#endregion
 //#region node_modules/@tanstack/react-router/dist/esm/lazyRouteComponent.js
 /**
