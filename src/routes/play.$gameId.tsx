@@ -1,1656 +1,965 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { Chess, type Move, type Square } from "chess.js";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  agreeDraw,
+  botPlayMove,
+  claimTimeout,
+  fillWithBot,
+  makeMove,
+  resignGame,
+} from "@/lib/games.functions";
+import { humanBotByName, humanBotMove, humanThinkDelay } from "@/lib/humanBots";
+import { BoardView } from "@/components/BoardView";
+import { GameOverDialog } from "@/components/GameOverDialog";
+import { MoveList } from "@/components/MoveList";
+import { ReportPanel } from "@/components/ReportPanel";
+import { submitFairPlay } from "@/lib/moderation.functions";
+import { playMoveSound } from "@/lib/sounds";
+import { BOARD_THEMES, THEME_KEY, type BoardTheme } from "@/lib/boardThemes";
 
 export const Route = createFileRoute("/play/$gameId")({
-  component: OnlineGame,
+  head: () => ({
+    meta: [
+      { title: "Online Chess Match — Click Chess" },
+      {
+        name: "description",
+        content:
+          "A live chess match against another player. Moves sync across devices and you can only move on your turn.",
+      },
+      { property: "og:title", content: "Online Chess Match — Click Chess" },
+      {
+        property: "og:description",
+        content:
+          "Live multiplayer chess with draw offers, a scorecard and a full game review.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: PlayOnline,
 });
 
-type Color = "w" | "b";
-
-type PieceType =
-  | "p"
-  | "r"
-  | "n"
-  | "b"
-  | "q"
-  | "k";
-
-type Piece = {
-  type: PieceType;
-  color: Color;
-};
-
-type Board = (Piece | null)[][];
-
-type Game = {
+type GameRow = {
   id: string;
-  white_player: string | null;
-  black_player: string | null;
-  white_username: string | null;
-  black_username: string | null;
+  white_id: string | null;
+  black_id: string | null;
+  invited_username: string | null;
+  fen: string;
   status: string;
-  fen: string | null;
-  turn: Color;
-  winner: string | null;
+  result: string | null;
+  last_move: string | null;
+  time_control: number;
+  white_ms: number | null;
+  black_ms: number | null;
+  turn_started_at: string | null;
+  bot_name: string | null;
+  bot_elo: number | null;
 };
 
-const START_BOARD: Board = [
-  [
-    { type: "r", color: "b" },
-    { type: "n", color: "b" },
-    { type: "b", color: "b" },
-    { type: "q", color: "b" },
-    { type: "k", color: "b" },
-    { type: "b", color: "b" },
-    { type: "n", color: "b" },
-    { type: "r", color: "b" },
-  ],
-  [
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-    { type: "p", color: "b" },
-  ],
-  [null, null, null, null, null, null, null, null],
-  [null, null, null, null, null, null, null, null],
-  [null, null, null, null, null, null, null, null],
-  [null, null, null, null, null, null, null, null],
-  [
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-    { type: "p", color: "w" },
-  ],
-  [
-    { type: "r", color: "w" },
-    { type: "n", color: "w" },
-    { type: "b", color: "w" },
-    { type: "q", color: "w" },
-    { type: "k", color: "w" },
-    { type: "b", color: "w" },
-    { type: "n", color: "w" },
-    { type: "r", color: "w" },
-  ],
-];
-
-const PIECES: Record<string, string> = {
-  wp: "♙",
-  wr: "♖",
-  wn: "♘",
-  wb: "♗",
-  wq: "♕",
-  wk: "♔",
-
-  bp: "♟",
-  br: "♜",
-  bn: "♞",
-  bb: "♝",
-  bq: "♛",
-  bk: "♚",
-};
-
-function cloneBoard(board: Board): Board {
-  return board.map((row) =>
-    row.map((piece) =>
-      piece ? { ...piece } : null,
-    ),
-  );
+function fmtClock(ms: number) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function parseBoard(fen: string | null): Board {
-  if (!fen || fen === "start") {
-    return cloneBoard(START_BOARD);
-  }
+function PlayOnline() {
+  const { gameId } = Route.useParams();
+  const { user, username, loading } = useAuth();
+  const navigate = useNavigate();
 
-  try {
-    const parsed = JSON.parse(fen);
+  const move = useServerFn(makeMove);
+  const resign = useServerFn(resignGame);
+  const draw = useServerFn(agreeDraw);
+  const timeout = useServerFn(claimTimeout);
+  const seatBot = useServerFn(fillWithBot);
+  const sendBotMove = useServerFn(botPlayMove);
 
-    if (
-      Array.isArray(parsed) &&
-      parsed.length === 8 &&
-      parsed.every(
-        (row) =>
-          Array.isArray(row) &&
-          row.length === 8,
-      )
-    ) {
-      return parsed as Board;
+  const [game, setGame] = useState<GameRow | null>(null);
+  const [opponentName, setOpponentName] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Square | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<BoardTheme>("green");
+  const [drawOffered, setDrawOffered] = useState(false);
+  const [incomingDraw, setIncomingDraw] = useState(false);
+  const [showResult, setShowResult] = useState(true);
+  const sendFairPlay = useServerFn(submitFairPlay);
+
+  const [now, setNow] = useState(() => Date.now());
+
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const claimedRef = useRef(false);
+  const pieceCountRef = useRef(0);
+  const fillingRef = useRef(false);
+  const botThinkingRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(THEME_KEY) as BoardTheme | null;
+
+    if (saved && BOARD_THEMES.some((t) => t.id === saved)) {
+      setTheme(saved);
     }
-  } catch {
-    // Fall back to starting position.
-  }
+  }, []);
 
-  return cloneBoard(START_BOARD);
-}
-
-function inside(
-  row: number,
-  col: number,
-): boolean {
-  return (
-    row >= 0 &&
-    row < 8 &&
-    col >= 0 &&
-    col < 8
-  );
-}
-
-function clearPath(
-  board: Board,
-  fr: number,
-  fc: number,
-  tr: number,
-  tc: number,
-): boolean {
-  const rowStep = Math.sign(tr - fr);
-  const colStep = Math.sign(tc - fc);
-
-  let row = fr + rowStep;
-  let col = fc + colStep;
-
-  while (
-    row !== tr ||
-    col !== tc
-  ) {
-    if (board[row][col]) {
-      return false;
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate({ to: "/" });
     }
-
-    row += rowStep;
-    col += colStep;
-  }
-
-  return true;
-}
-
-/*
- * This function checks normal piece movement.
- *
- * IMPORTANT:
- * It does NOT determine check.
- * Check is handled separately by attacksSquare().
- */
-function pieceCanMove(
-  board: Board,
-  from: [number, number],
-  to: [number, number],
-  color: Color,
-): boolean {
-  const [fr, fc] = from;
-  const [tr, tc] = to;
-
-  if (!inside(tr, tc)) {
-    return false;
-  }
-
-  const piece = board[fr][fc];
-  const target = board[tr][tc];
-
-  if (!piece || piece.color !== color) {
-    return false;
-  }
-
-  if (target?.color === color) {
-    return false;
-  }
-
-  // The king is NEVER a capturable piece.
-  if (target?.type === "k") {
-    return false;
-  }
-
-  const dr = tr - fr;
-  const dc = tc - fc;
-
-  const adr = Math.abs(dr);
-  const adc = Math.abs(dc);
-
-  switch (piece.type) {
-    case "p": {
-      const direction =
-        color === "w" ? -1 : 1;
-
-      const startRow =
-        color === "w" ? 6 : 1;
-
-      // One square forward.
-      if (
-        dc === 0 &&
-        dr === direction &&
-        !target
-      ) {
-        return true;
-      }
-
-      // Two squares from starting position.
-      if (
-        dc === 0 &&
-        dr === direction * 2 &&
-        fr === startRow &&
-        !target &&
-        !board[fr + direction][fc]
-      ) {
-        return true;
-      }
-
-      // Diagonal capture.
-      if (
-        adc === 1 &&
-        dr === direction &&
-        target &&
-        target.color !== color &&
-        target.type !== "k"
-      ) {
-        return true;
-      }
-
-      return false;
-    }
-
-    case "r":
-      return (
-        (dr === 0 || dc === 0) &&
-        clearPath(
-          board,
-          fr,
-          fc,
-          tr,
-          tc,
-        )
-      );
-
-    case "b":
-      return (
-        adr === adc &&
-        clearPath(
-          board,
-          fr,
-          fc,
-          tr,
-          tc,
-        )
-      );
-
-    case "q":
-      return (
-        (
-          dr === 0 ||
-          dc === 0 ||
-          adr === adc
-        ) &&
-        clearPath(
-          board,
-          fr,
-          fc,
-          tr,
-          tc,
-        )
-      );
-
-    case "n":
-      return (
-        (adr === 2 && adc === 1) ||
-        (adr === 1 && adc === 2)
-      );
-
-    case "k":
-      return (
-        adr <= 1 &&
-        adc <= 1
-      );
-
-    default:
-      return false;
-  }
-}
-
-/*
- * This is DIFFERENT from pieceCanMove().
- *
- * It asks:
- * "Does this piece ATTACK this square?"
- *
- * This is what we use to detect CHECK.
- */
-function attacksSquare(
-  board: Board,
-  from: [number, number],
-  to: [number, number],
-): boolean {
-  const [fr, fc] = from;
-  const [tr, tc] = to;
-
-  if (!inside(tr, tc)) {
-    return false;
-  }
-
-  const piece = board[fr][fc];
-
-  if (!piece) {
-    return false;
-  }
-
-  const dr = tr - fr;
-  const dc = tc - fc;
-
-  const adr = Math.abs(dr);
-  const adc = Math.abs(dc);
-
-  // Pawn attacks diagonally.
-  if (piece.type === "p") {
-    const direction =
-      piece.color === "w"
-        ? -1
-        : 1;
-
-    return (
-      dr === direction &&
-      adc === 1
-    );
-  }
-
-  // Knight attacks.
-  if (piece.type === "n") {
-    return (
-      (adr === 2 && adc === 1) ||
-      (adr === 1 && adc === 2)
-    );
-  }
-
-  // King attacks adjacent squares.
-  if (piece.type === "k") {
-    return (
-      adr <= 1 &&
-      adc <= 1
-    );
-  }
-
-  // Rook attacks.
-  if (piece.type === "r") {
-    return (
-      (dr === 0 || dc === 0) &&
-      clearPath(
-        board,
-        fr,
-        fc,
-        tr,
-        tc,
-      )
-    );
-  }
-
-  // Bishop attacks.
-  if (piece.type === "b") {
-    return (
-      adr === adc &&
-      clearPath(
-        board,
-        fr,
-        fc,
-        tr,
-        tc,
-      )
-    );
-  }
-
-  // Queen attacks.
-  if (piece.type === "q") {
-    return (
-      (
-        dr === 0 ||
-        dc === 0 ||
-        adr === adc
-      ) &&
-      clearPath(
-        board,
-        fr,
-        fc,
-        tr,
-        tc,
-      )
-    );
-  }
-
-  return false;
-}
-
-function findKing(
-  board: Board,
-  color: Color,
-): [number, number] | null {
-  for (let row = 0; row < 8; row++) {
-    for (let col = 0; col < 8; col++) {
-      const piece = board[row][col];
-
-      if (
-        piece?.type === "k" &&
-        piece.color === color
-      ) {
-        return [row, col];
-      }
-    }
-  }
-
-  return null;
-}
-
-function isInCheck(
-  board: Board,
-  color: Color,
-): boolean {
-  const king = findKing(
-    board,
-    color,
-  );
-
-  if (!king) {
-    return true;
-  }
-
-  const opponent: Color =
-    color === "w"
-      ? "b"
-      : "w";
-
-  for (let row = 0; row < 8; row++) {
-    for (let col = 0; col < 8; col++) {
-      const piece = board[row][col];
-
-      if (
-        !piece ||
-        piece.color !== opponent
-      ) {
-        continue;
-      }
-
-      if (
-        attacksSquare(
-          board,
-          [row, col],
-          king,
-        )
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-function tryMove(
-  board: Board,
-  from: [number, number],
-  to: [number, number],
-  color: Color,
-): Board | null {
-  if (
-    !pieceCanMove(
-      board,
-      from,
-      to,
-      color,
-    )
-  ) {
-    return null;
-  }
-
-  const target =
-    board[to[0]][to[1]];
-
-  // NEVER capture the king.
-  if (target?.type === "k") {
-    return null;
-  }
-
-  const next =
-    cloneBoard(board);
-
-  next[to[0]][to[1]] =
-    next[from[0]][from[1]];
-
-  next[from[0]][from[1]] =
-    null;
-
-  // Automatic promotion to queen.
-  const movedPiece =
-    next[to[0]][to[1]];
-
-  if (
-    movedPiece?.type === "p" &&
-    (
-      (
-        movedPiece.color === "w" &&
-        to[0] === 0
-      ) ||
-      (
-        movedPiece.color === "b" &&
-        to[0] === 7
-      )
-    )
-  ) {
-    next[to[0]][to[1]] = {
-      type: "q",
-      color: movedPiece.color,
-    };
-  }
-
-  /*
-   * CRITICAL:
-   * After making the move, check whether
-   * our own king is attacked.
-   *
-   * If yes, the move is illegal.
-   */
-  if (
-    isInCheck(
-      next,
-      color,
-    )
-  ) {
-    return null;
-  }
-
-  return next;
-}
-
-function hasLegalMove(
-  board: Board,
-  color: Color,
-): boolean {
-  for (let fr = 0; fr < 8; fr++) {
-    for (let fc = 0; fc < 8; fc++) {
-      const piece =
-        board[fr][fc];
-
-      if (
-        !piece ||
-        piece.color !== color
-      ) {
-        continue;
-      }
-
-      for (let tr = 0; tr < 8; tr++) {
-        for (let tc = 0; tc < 8; tc++) {
-          const result =
-            tryMove(
-              board,
-              [fr, fc],
-              [tr, tc],
-              color,
-            );
-
-          if (result) {
-            return true;
-          }
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-function getGameState(
-  board: Board,
-  turn: Color,
-): {
-  status: "playing" | "checkmate" | "stalemate";
-  inCheck: boolean;
-  winner: Color | null;
-} {
-  const inCheck =
-    isInCheck(
-      board,
-      turn,
-    );
-
-  const hasMove =
-    hasLegalMove(
-      board,
-      turn,
-    );
-
-  if (
-    inCheck &&
-    !hasMove
-  ) {
-    return {
-      status: "checkmate",
-      inCheck: true,
-      winner:
-        turn === "w"
-          ? "b"
-          : "w",
-    };
-  }
-
-  if (
-    !inCheck &&
-    !hasMove
-  ) {
-    return {
-      status: "stalemate",
-      inCheck: false,
-      winner: null,
-    };
-  }
-
-  return {
-    status: "playing",
-    inCheck,
-    winner: null,
-  };
-}
-
-function OnlineGame() {
-  const navigate =
-    useNavigate();
-
-  const { user } =
-    useAuth();
-
-  const { gameId } =
-    Route.useParams();
-
-  const [game, setGame] =
-    useState<Game | null>(null);
-
-  const [board, setBoard] =
-    useState<Board>(
-      cloneBoard(
-        START_BOARD,
-      ),
-    );
-
-  const [selected, setSelected] =
-    useState<
-      [number, number] | null
-    >(null);
-
-  const [message, setMessage] =
-    useState(
-      "Loading game...",
-    );
-
-  const [connected, setConnected] =
-    useState(false);
-
-  const [result, setResult] =
-    useState<
-      "won" |
-      "lost" |
-      "draw" |
-      null
-    >(null);
-
-  const [showResult, setShowResult] =
-    useState(false);
-
-  const [busy, setBusy] =
-    useState(false);
-
-  const myColor =
-    useMemo<Color | null>(() => {
-      if (!user || !game) {
-        return null;
-      }
-
-      if (
-        game.white_player ===
-        user.id
-      ) {
-        return "w";
-      }
-
-      if (
-        game.black_player ===
-        user.id
-      ) {
-        return "b";
-      }
-
-      return null;
-    }, [game, user]);
-
-  function showGameStatus(
-    currentGame: Game,
-    currentBoard: Board,
-  ) {
-    if (
-      currentGame.status ===
-      "waiting"
-    ) {
-      setMessage(
-        "Waiting for another player...",
-      );
-      return;
-    }
-
-    if (
-      currentGame.status ===
-      "finished"
-    ) {
-      if (
-        currentGame.winner &&
-        user?.id ===
-          currentGame.winner
-      ) {
-        setResult("won");
-        setShowResult(true);
-        setMessage(
-          "YOU WON!",
-        );
-      } else if (
-        currentGame.winner
-      ) {
-        setResult("lost");
-        setShowResult(true);
-        setMessage(
-          "YOU LOST",
-        );
-      } else {
-        setResult("draw");
-        setShowResult(true);
-        setMessage(
-          "DRAW",
-        );
-      }
-
-      return;
-    }
-
-    const state =
-      getGameState(
-        currentBoard,
-        currentGame.turn,
-      );
-
-    if (
-      state.status ===
-      "checkmate"
-    ) {
-      const winnerColor =
-        state.winner;
-
-      const winnerId =
-        winnerColor === "w"
-          ? currentGame.white_player
-          : currentGame.black_player;
-
-      if (
-        winnerId &&
-        user?.id === winnerId
-      ) {
-        setResult("won");
-        setShowResult(true);
-        setMessage(
-          "CHECKMATE — YOU WON!",
-        );
-      } else {
-        setResult("lost");
-        setShowResult(true);
-        setMessage(
-          "CHECKMATE — YOU LOST!",
-        );
-      }
-
-      return;
-    }
-
-    if (
-      state.status ===
-      "stalemate"
-    ) {
-      setResult("draw");
-      setShowResult(true);
-      setMessage(
-        "STALEMATE — DRAW!",
-      );
-      return;
-    }
-
-    if (state.inCheck) {
-      setMessage(
-        currentGame.turn === "w"
-          ? "WHITE IS IN CHECK!"
-          : "BLACK IS IN CHECK!",
-      );
-      return;
-    }
-
-    setMessage(
-      currentGame.turn === "w"
-        ? "White to move"
-        : "Black to move",
-    );
-  }
+  }, [loading, user, navigate]);
 
   useEffect(() => {
     let active = true;
 
-    async function loadGame() {
-      const { data, error } =
-        await supabase
-          .from("games")
-          .select("*")
-          .eq("id", gameId)
-          .single();
+    const load = async () => {
+      const { data } = await supabase
+        .from("games")
+        .select("*")
+        .eq("id", gameId)
+        .maybeSingle();
 
-      if (!active) {
-        return;
+      if (active && data) {
+        setGame(data as GameRow);
       }
+    };
 
-      if (error) {
-        setMessage(
-          error.message,
-        );
-        return;
-      }
+    load();
 
-      const loaded =
-        data as Game;
+    const channel = supabase
+      .channel(`game-${gameId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "games",
+          filter: `id=eq.${gameId}`,
+        },
+        (payload) => {
+          if (active) {
+            setGame(payload.new as GameRow);
+          }
+        },
+      )
+      .on("broadcast", { event: "draw-offer" }, ({ payload }) => {
+        if (payload?.from !== user?.id) {
+          setIncomingDraw(true);
+        }
+      })
+      .on("broadcast", { event: "draw-decline" }, ({ payload }) => {
+        if (payload?.from !== user?.id) {
+          setDrawOffered(false);
+        }
+      })
+      .subscribe();
 
-      const loadedBoard =
-        parseBoard(
-          loaded.fen,
-        );
+    channelRef.current = channel;
 
-      setGame(loaded);
-      setBoard(
-        loadedBoard,
-      );
-
-      showGameStatus(
-        loaded,
-        loadedBoard,
-      );
-    }
-
-    void loadGame();
-
-    const channel =
-      supabase
-        .channel(
-          `chess-game-${gameId}`,
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "games",
-            filter:
-              `id=eq.${gameId}`,
-          },
-          (payload) => {
-            const updated =
-              payload.new as Game;
-
-            const updatedBoard =
-              parseBoard(
-                updated.fen,
-              );
-
-            setGame(
-              updated,
-            );
-
-            setBoard(
-              updatedBoard,
-            );
-
-            setSelected(
-              null,
-            );
-
-            showGameStatus(
-              updated,
-              updatedBoard,
-            );
-          },
-        )
-        .subscribe(
-          (status) => {
-            setConnected(
-              status ===
-                "SUBSCRIBED",
-            );
-          },
-        );
+    const poll = setInterval(load, 2000);
 
     return () => {
       active = false;
-
-      void supabase.removeChannel(
-        channel,
-      );
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+      channelRef.current = null;
     };
-  }, [gameId]);
+  }, [gameId, user?.id]);
 
-  async function makeMove(
-    from: [number, number],
-    to: [number, number],
-  ) {
-    if (
-      !game ||
-      !user ||
-      !myColor ||
-      busy
-    ) {
-      return;
-    }
+  const myColor =
+    !game || !user
+      ? null
+      : game.white_id === user.id
+        ? "w"
+        : game.black_id === user.id
+          ? "b"
+          : null;
 
-    if (
-      game.status !==
-      "playing"
-    ) {
-      return;
-    }
-
-    if (
-      game.turn !==
-      myColor
-    ) {
-      setMessage(
-        "Wait for your turn.",
-      );
-      return;
-    }
-
-    /*
-     * This is the important legality check.
-     *
-     * If the player is in check,
-     * tryMove() will reject every
-     * move that doesn't remove it.
-     */
-    const newBoard =
-      tryMove(
-        board,
-        from,
-        to,
-        myColor,
-      );
-
-    if (!newBoard) {
-      setMessage(
-        "Illegal move.",
-      );
-      return;
-    }
-
-    const nextTurn: Color =
+  useEffect(() => {
+    const otherId =
       myColor === "w"
-        ? "b"
-        : "w";
+        ? game?.black_id
+        : game?.white_id;
 
-    const state =
-      getGameState(
-        newBoard,
-        nextTurn,
-      );
-
-    let status:
-      | "playing"
-      | "finished" =
-      "playing";
-
-    let winner:
-      | string
-      | null = null;
-
-    if (
-      state.status ===
-      "checkmate"
-    ) {
-      status =
-        "finished";
-
-      winner =
-        myColor === "w"
-          ? game.white_player
-          : game.black_player;
-    } else if (
-      state.status ===
-      "stalemate"
-    ) {
-      status =
-        "finished";
-
-      winner = null;
-    }
-
-    /*
-     * Show our move immediately.
-     */
-    setBoard(
-      newBoard,
-    );
-
-    setSelected(
-      null,
-    );
-
-    setBusy(
-      true,
-    );
-
-    const { error } =
-      await supabase
-        .from("games")
-        .update({
-          fen: JSON.stringify(
-            newBoard,
-          ),
-          turn: nextTurn,
-          status,
-          winner,
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          game.id,
-        );
-
-    setBusy(
-      false,
-    );
-
-    if (error) {
-      setMessage(
-        error.message,
-      );
+    if (!otherId) {
+      setOpponentName(game?.bot_name ?? null);
       return;
     }
 
-    /*
-     * Update our local game state too.
-     * The other player will receive the
-     * same update through Supabase Realtime.
-     */
-    const updatedGame: Game = {
-      ...game,
-      fen: JSON.stringify(
-        newBoard,
-      ),
-      turn: nextTurn,
-      status,
-      winner,
+    supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", otherId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setOpponentName(data?.username ?? null);
+      });
+  }, [game?.black_id, game?.white_id, game?.bot_name, myColor]);
+
+  const chess = useMemo(
+    () => (game ? new Chess(game.fen) : null),
+    [game?.fen],
+  );
+
+  const board = useMemo(
+    () => chess?.board() ?? [],
+    [chess],
+  );
+
+  const myTurn =
+    !!chess &&
+    !!myColor &&
+    chess.turn() === myColor &&
+    game?.status === "active";
+
+  /*
+   * BOT FALLBACK
+   *
+   * A normal player gets 30 seconds to join.
+   * If nobody joins, this client asks the server to seat a bot.
+   *
+   * We also retry every 3 seconds if the request fails.
+   */
+  const waitingAlone =
+    game?.status === "waiting" &&
+    !!myColor &&
+    !game.invited_username &&
+    (myColor === "w" ? !game.black_id : !game.white_id);
+
+  useEffect(() => {
+    if (!waitingAlone) {
+      fillingRef.current = false;
+      return;
+    }
+
+    if (fillingRef.current) {
+      return;
+    }
+
+    const startedAt = Date.now();
+
+    const tryFillBot = async () => {
+      if (!waitingAlone || fillingRef.current) {
+        return;
+      }
+
+      const elapsed = Date.now() - startedAt;
+
+      if (elapsed < 30000) {
+        return;
+      }
+
+      fillingRef.current = true;
+
+      try {
+        const result = await seatBot({
+          data: { gameId },
+        });
+
+        if (result) {
+          setGame((current) =>
+            current
+              ? {
+                  ...current,
+                  ...result,
+                }
+              : current,
+          );
+        }
+
+        setError(null);
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message.replace(/^Error:\s*/, "")
+            : "Could not start the bot.",
+        );
+      } finally {
+        fillingRef.current = false;
+      }
     };
 
-    setGame(
-      updatedGame,
-    );
+    const firstTimer = window.setTimeout(tryFillBot, 30000);
 
-    showGameStatus(
-      updatedGame,
-      newBoard,
-    );
-  }
+    const retryTimer = window.setInterval(() => {
+      void tryFillBot();
+    }, 3000);
 
-  async function resignGame() {
-    if (
-      !game ||
-      !user ||
-      !myColor ||
-      busy
-    ) {
-      return;
-    }
-
-    if (
-      game.status !==
-      "playing"
-    ) {
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Are you sure you want to resign?",
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setBusy(
-      true,
-    );
-
-    const winner =
-      myColor === "w"
-        ? game.black_player
-        : game.white_player;
-
-    const { error } =
-      await supabase
-        .from("games")
-        .update({
-          status:
-            "finished",
-          winner,
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          game.id,
-        )
-        .eq(
-          "status",
-          "playing",
-        );
-
-    setBusy(
-      false,
-    );
-
-    if (error) {
-      setMessage(
-        error.message,
-      );
-      return;
-    }
-
-    const updatedGame: Game = {
-      ...game,
-      status:
-        "finished",
-      winner,
+    return () => {
+      window.clearTimeout(firstTimer);
+      window.clearInterval(retryTimer);
     };
+  }, [waitingAlone, seatBot, gameId]);
 
-    setGame(
-      updatedGame,
-    );
+  /*
+   * COMPUTER OPPONENT
+   *
+   * Once the server has seated the bot, this client makes the
+   * bot's moves and sends them through the server function.
+   */
+  const botSeatEmpty =
+    !!game?.bot_name &&
+    !!myColor &&
+    (myColor === "w" ? !game.black_id : !game.white_id);
 
-    setResult(
-      "lost",
-    );
-
-    setShowResult(
-      true,
-    );
-
-    setMessage(
-      "YOU RESIGNED",
-    );
-  }
-
-  function handleSquareClick(
-    displayRow: number,
-    displayCol: number,
-  ) {
+  useEffect(() => {
     if (
+      !botSeatEmpty ||
+      !chess ||
       !game ||
-      !user ||
-      !myColor ||
-      busy
+      game.status !== "active" ||
+      myTurn
     ) {
       return;
     }
+
+    const bot = humanBotByName(game.bot_name!);
+
+    if (!bot) {
+      return;
+    }
+
+    const fen = game.fen;
+
+    if (botThinkingRef.current === fen) {
+      return;
+    }
+
+    botThinkingRef.current = fen;
+
+    const id = window.setTimeout(() => {
+      const choice = humanBotMove(fen, bot);
+
+      if (!choice) {
+        botThinkingRef.current = null;
+        return;
+      }
+
+      sendBotMove({
+        data: {
+          gameId,
+          from: choice.from,
+          to: choice.to,
+        },
+      })
+        .then((res) => {
+          setGame((g) =>
+            g
+              ? {
+                  ...g,
+                  fen: res.fen,
+                  status: res.status,
+                  result: res.result,
+                  last_move: `${choice.from}${choice.to}`,
+                }
+              : g,
+          );
+        })
+        .catch((e) => {
+          botThinkingRef.current = null;
+
+          setError(
+            e instanceof Error
+              ? e.message.replace(/^Error:\s*/, "")
+              : "Bot move failed.",
+          );
+        });
+    }, humanThinkDelay(bot));
+
+    return () => clearTimeout(id);
+  }, [
+    botSeatEmpty,
+    game?.fen,
+    game?.status,
+    myTurn,
+    gameId,
+    sendBotMove,
+  ]);
+
+  // Live clocks
+  const clockOn =
+    !!game?.time_control &&
+    game.status === "active";
+
+  useEffect(() => {
+    if (!clockOn) {
+      return;
+    }
+
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 250);
+
+    return () => clearInterval(id);
+  }, [clockOn]);
+
+  const remaining = (side: "w" | "b") => {
+    if (!game?.time_control) {
+      return null;
+    }
+
+    const base =
+      (side === "w" ? game.white_ms : game.black_ms) ??
+      game.time_control * 60000;
 
     if (
-      game.status !==
-      "playing"
+      game.status !== "active" ||
+      !chess ||
+      chess.turn() !== side ||
+      !game.turn_started_at
     ) {
-      return;
+      return Math.max(0, base);
     }
 
+    return Math.max(
+      0,
+      base - (now - new Date(game.turn_started_at).getTime()),
+    );
+  };
+
+  const turnClock = chess
+    ? remaining(chess.turn() as "w" | "b")
+    : null;
+
+  useEffect(() => {
     if (
-      game.turn !==
-      myColor
+      !clockOn ||
+      turnClock === null ||
+      turnClock > 0 ||
+      claimedRef.current
     ) {
-      setMessage(
-        "Wait for your turn.",
-      );
       return;
     }
 
-    /*
-     * Black sees the board from
-     * Black's perspective.
-     */
-    const actualRow =
-      myColor === "b"
-        ? 7 - displayRow
-        : displayRow;
+    claimedRef.current = true;
 
-    const actualCol =
-      myColor === "b"
-        ? 7 - displayCol
-        : displayCol;
+    timeout({ data: { gameId } }).catch(() => {
+      claimedRef.current = false;
+    });
+  }, [clockOn, turnClock, timeout, gameId]);
 
-    const piece =
-      board[actualRow][actualCol];
+  // Move history
+  const [moveLog, setMoveLog] = useState<string[]>([]);
 
-    /*
-     * Nothing selected yet.
-     */
-    if (!selected) {
-      if (
-        piece &&
-        piece.color ===
-          myColor
-      ) {
-        setSelected([
-          actualRow,
-          actualCol,
-        ]);
+  useEffect(() => {
+    const lm = game?.last_move;
 
-        setMessage(
-          "Select a legal destination.",
-        );
+    if (!lm) {
+      return;
+    }
+
+    setMoveLog((log) => {
+      if (log[log.length - 1] === lm) {
+        return log;
+      }
+
+      const pieces = (game?.fen ?? "")
+        .split(" ")[0]
+        .replace(/[^a-zA-Z]/g, "").length;
+
+      const captured =
+        pieceCountRef.current > 0 &&
+        pieces < pieceCountRef.current;
+
+      pieceCountRef.current = pieces;
+
+      playMoveSound({
+        captured,
+        check: !!chess?.inCheck(),
+        over: game?.status === "finished",
+      });
+
+      return [...log, lm];
+    });
+  }, [game?.last_move]);
+
+  const history = useMemo(() => {
+    const replay = new Chess();
+
+    for (const m of moveLog) {
+      try {
+        replay.move({
+          from: m.slice(0, 2),
+          to: m.slice(2, 4),
+          promotion: "q",
+        });
+      } catch {
+        return [] as Move[];
+      }
+    }
+
+    return replay.history({
+      verbose: true,
+    }) as Move[];
+  }, [moveLog]);
+
+  useEffect(() => {
+    if (myTurn) {
+      setError(null);
+    }
+  }, [myTurn]);
+
+  const destinations = useMemo(() => {
+    if (!chess || !selected) {
+      return new Set<string>();
+    }
+
+    return new Set(
+      chess
+        .moves({
+          square: selected,
+          verbose: true,
+        })
+        .map((m) => m.to),
+    );
+  }, [chess, selected]);
+
+  const checkSquare = useMemo(() => {
+    if (!chess?.inCheck()) {
+      return null;
+    }
+
+    const turn = chess.turn();
+
+    for (const row of chess.board()) {
+      for (const cell of row) {
+        if (
+          cell &&
+          cell.type === "k" &&
+          cell.color === turn
+        ) {
+          return cell.square;
+        }
+      }
+    }
+
+    return null;
+  }, [chess]);
+
+  const lastMove = game?.last_move
+    ? {
+        from: game.last_move.slice(0, 2),
+        to: game.last_move.slice(2, 4),
+      }
+    : null;
+
+  const onSquareClick = async (square: Square) => {
+    if (!chess || !myTurn) {
+      if (game?.status === "active" && !myTurn) {
+        setError("It's not your turn yet.");
       }
 
       return;
     }
 
-    /*
-     * Click the same square to cancel.
-     */
-    if (
-      selected[0] ===
-        actualRow &&
-      selected[1] ===
-        actualCol
-    ) {
+    setError(null);
+
+    const piece = chess.get(square);
+
+    if (piece && piece.color === myColor) {
       setSelected(
-        null,
+        square === selected ? null : square,
       );
-
       return;
     }
 
-    /*
-     * Select a different piece
-     * of your own color.
-     */
-    if (
-      piece &&
-      piece.color ===
-        myColor
-    ) {
-      setSelected([
-        actualRow,
-        actualCol,
-      ]);
-
+    if (!selected) {
       return;
     }
 
-    /*
-     * Attempt the move.
-     *
-     * tryMove() will reject:
-     * - illegal piece movement
-     * - capturing the king
-     * - moving into check
-     * - leaving your king in check
-     */
-    void makeMove(
-      selected,
-      [
-        actualRow,
-        actualCol,
-      ],
-    );
-  }
+    const from = selected;
+
+    setSelected(null);
+
+    try {
+      const res = await move({
+        data: {
+          gameId,
+          from,
+          to: square,
+        },
+      });
+
+      setGame((g) =>
+        g
+          ? {
+              ...g,
+              fen: res.fen,
+              status: res.status,
+              result: res.result,
+              last_move: `${from}${square}`,
+            }
+          : g,
+      );
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message.replace(/^Error:\s*/, "")
+          : "Move failed.",
+      );
+    }
+  };
 
   if (!game) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="text-center">
-          <p className="text-xl font-bold">
-            Loading game...
-          </p>
-
-          <p className="mt-2 text-sm text-muted-foreground">
-            {message}
-          </p>
-        </div>
-      </main>
+      <Shell>
+        <p className="text-center text-sm text-muted-foreground">
+          Loading match…
+        </p>
+      </Shell>
     );
   }
 
-  /*
-   * Flip the board for Black.
-   */
-  const displayBoard =
-    myColor === "b"
-      ? [...board]
-          .reverse()
-          .map((row) =>
-            [...row].reverse(),
-          )
-      : board;
+  if (!myColor) {
+    return (
+      <Shell>
+        <p className="text-center text-sm text-muted-foreground">
+          You're not a player in this match.
+        </p>
+      </Shell>
+    );
+  }
+    const iWon =
+    game.result ===
+    (myColor === "w" ? "white" : "black");
 
-  const displaySelected =
-    selected &&
-    myColor === "b"
-      ? [
-          7 - selected[0],
-          7 - selected[1],
-        ]
-      : selected;
+  let status: string;
+
+  if (game.status === "waiting") {
+    status = game.invited_username
+      ? `Waiting for ${game.invited_username} to join…`
+      : "Finding you an opponent…";
+  } else if (game.status === "finished") {
+    status =
+      game.result === "draw"
+        ? "Draw"
+        : iWon
+          ? "You won!"
+          : "You lost.";
+  } else if (myTurn) {
+    status = chess?.inCheck()
+      ? "Your move — you're in check"
+      : "Your move";
+  } else {
+    status = `Waiting for ${
+      opponentName ?? "your opponent"
+    }…`;
+  }
+
+  const sendDrawOffer = () => {
+    setDrawOffered(true);
+
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "draw-offer",
+      payload: {
+        from: user?.id,
+      },
+    });
+  };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8">
+    <Shell>
+      <div className="flex flex-col items-center gap-5">
 
-      {/* GAME RESULT POPUP */}
-      {showResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5">
-          <div className="w-full max-w-md rounded-3xl border border-border bg-card p-8 text-center shadow-2xl">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-5 py-3 shadow-[var(--shadow-panel)]">
+          <div>
+            <p className="font-medium text-card-foreground">
+              {status}
+            </p>
 
-            <div className="text-7xl">
-              {result === "won"
-                ? "🏆"
-                : result === "lost"
-                  ? "😔"
-                  : "🤝"}
+            <p className="text-xs text-muted-foreground">
+              You play{" "}
+              {myColor === "w" ? "White" : "Black"}
+
+              {opponentName
+                ? ` · vs ${opponentName}`
+                : ""}
+
+              {game.bot_name && game.bot_elo
+                ? ` (${game.bot_elo})`
+                : ""}
+            </p>
+          </div>
+
+          {!!game.time_control && (
+            <div className="flex gap-2 font-mono text-sm">
+
+              <span
+                className={`rounded-md px-2.5 py-1 ${
+                  chess?.turn() ===
+                  (myColor === "w" ? "b" : "w")
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {opponentName ?? "Opponent"}{" "}
+                {fmtClock(
+                  remaining(
+                    myColor === "w" ? "b" : "w",
+                  ) ?? 0,
+                )}
+              </span>
+
+              <span
+                className={`rounded-md px-2.5 py-1 ${
+                  myTurn
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                You {fmtClock(remaining(myColor) ?? 0)}
+              </span>
+
             </div>
-
-            <h2 className="mt-5 text-4xl font-black">
-              {result === "won"
-                ? "YOU WON!"
-                : result === "lost"
-                  ? "YOU LOST"
-                  : "DRAW"}
-            </h2>
-
-            <p className="mt-3 text-muted-foreground">
-              {result === "won"
-                ? "Checkmate! Excellent game."
-                : result === "lost"
-                  ? "Good game. Try again!"
-                  : "The game ended in a draw."}
-            </p>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowResult(
-                  false,
-                );
-
-                navigate({
-                  to: "/online",
-                });
-              }}
-              className="mt-7 w-full rounded-xl bg-primary px-5 py-3 font-bold text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              Back to Online
-            </button>
-
-          </div>
+          )}
         </div>
-      )}
 
-      <div className="mx-auto max-w-3xl">
-
-        <button
-          type="button"
-          onClick={() =>
-            navigate({
-              to: "/online",
-            })
-          }
-          className="mb-5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          ← Back to Online
-        </button>
-
-        {/* HEADER */}
-        <div className="mb-5 text-center">
-
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-            Multiplayer Chess
+        {game.status === "waiting" && (
+          <p className="rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+            {game.invited_username
+              ? `Waiting for ${game.invited_username} to join…`
+              : "Waiting for an opponent. If nobody joins within 30 seconds, a bot will automatically start the game."}
           </p>
-
-          <h1 className="mt-2 text-3xl font-black">
-            {game.white_username ??
-              "White"}
-
-            <span className="mx-2 text-muted-foreground">
-              vs
-            </span>
-
-            {game.black_username ??
-              "Waiting..."}
-          </h1>
-
-          <div className="mt-3 flex flex-wrap justify-center gap-2">
-
-            <span className="rounded-full border border-border px-3 py-1 text-sm">
-              You are{" "}
-              <strong>
-                {myColor === "w"
-                  ? "White"
-                  : myColor === "b"
-                    ? "Black"
-                    : "Spectator"}
-              </strong>
-            </span>
-
-            <span
-              className={`rounded-full px-3 py-1 text-sm ${
-                connected
-                  ? "bg-green-500/15 text-green-400"
-                  : "bg-destructive/15 text-destructive"
-              }`}
-            >
-              {connected
-                ? "● Live"
-                : "● Connecting..."}
-            </span>
-
-          </div>
-
-          <p
-            className={`mt-3 font-bold ${
-              message.includes(
-                "CHECK",
-              )
-                ? "text-red-500"
-                : ""
-            }`}
-          >
-            {message}
-          </p>
-
-        </div>
-
-        {/* BOARD */}
-        <div className="mx-auto max-w-[680px] overflow-hidden rounded-2xl border-4 border-border shadow-2xl">
-
-          <div className="grid grid-cols-8">
-
-            {displayBoard.map(
-              (
-                row,
-                displayRow,
-              ) =>
-                row.map(
-                  (
-                    piece,
-                    displayCol,
-                  ) => {
-
-                    const dark =
-                      (
-                        displayRow +
-                        displayCol
-                      ) %
-                        2 ===
-                      1;
-
-                    const selectedHere =
-                      displaySelected?.[0] ===
-                        displayRow &&
-                      displaySelected?.[1] ===
-                        displayCol;
-
-                    return (
-                      <button
-                        key={`${displayRow}-${displayCol}`}
-                        type="button"
-                        onClick={() =>
-                          handleSquareClick(
-                            displayRow,
-                            displayCol,
-                          )
-                        }
-                        className={`
-                          relative
-                          aspect-square
-                          flex
-                          items-center
-                          justify-center
-                          select-none
-                          ${
-                            dark
-                              ? "bg-[#9b4a00]"
-                              : "bg-[#fff3c4]"
-                          }
-                          ${
-                            selectedHere
-                              ? "ring-4 ring-inset ring-yellow-400"
-                              : ""
-                          }
-                          ${
-                            piece?.color ===
-                            myColor
-                              ? "cursor-pointer"
-                              : "cursor-default"
-                          }
-                        `}
-                      >
-
-                        {piece && (
-                          <span
-                            className={`
-                              relative
-                              z-10
-                              font-serif
-                              text-[clamp(2.5rem,8vw,4.7rem)]
-                              leading-none
-                              ${
-                                piece.color ===
-                                "w"
-                                  ? "text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.95),0_0_2px_#000]"
-                                  : "text-[#111] [text-shadow:0_1px_3px_rgba(255,255,255,0.8)]"
-                              }
-                            `}
-                          >
-                            {
-                              PIECES[
-                                `${piece.color}${piece.type}`
-                              ]
-                            }
-                          </span>
-                        )}
-
-                        {selectedHere && (
-                          <span className="pointer-events-none absolute inset-1 rounded-lg border-4 border-yellow-400" />
-                        )}
-
-                      </button>
-                    );
-                  },
-                ),
-            )}
-
-          </div>
-
-        </div>
-
-        {/* PLAYERS */}
-        <div className="mx-auto mt-5 grid max-w-[680px] grid-cols-2 gap-3">
-
-          <div className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              White
-            </p>
-
-            <p className="mt-1 font-bold">
-              {game.white_username ??
-                "Waiting..."}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-4 text-right">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Black
-            </p>
-
-            <p className="mt-1 font-bold">
-              {game.black_username ??
-                "Waiting..."}
-            </p>
-          </div>
-
-        </div>
-
-        {/* RESIGN */}
-        {game.status ===
-          "playing" && (
-          <div className="mx-auto mt-4 max-w-[680px]">
-
-            <button
-              type="button"
-              disabled={busy}
-              onClick={
-                resignGame
-              }
-              className="w-full rounded-xl border border-destructive/40 px-5 py-3 font-bold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-            >
-              🏳️ Resign
-            </button>
-
-          </div>
         )}
 
-        {/* STATUS */}
-        <div className="mx-auto mt-4 max-w-[680px] rounded-xl border border-border bg-card p-4 text-center">
+        <div className="flex w-full flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-center">
 
-          {game.status ===
-          "waiting" ? (
-            <p className="text-sm text-muted-foreground">
-              Waiting for another
-              player to join...
-            </p>
-          ) : game.status ===
-            "finished" ? (
-            <p className="font-bold">
-              {message}
-            </p>
-          ) : game.turn ===
-            myColor ? (
-            <p className="font-bold">
-              Your turn — select
-              a piece.
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Opponent's turn.
-            </p>
-          )}
+          <BoardView
+            board={board}
+            selected={selected}
+            destinations={destinations}
+            lastMove={lastMove}
+            flipped={myColor === "b"}
+            theme={theme}
+            checkSquare={checkSquare}
+            onSquareClick={onSquareClick}
+            onDropMove={(from, to) => {
+              setSelected(from);
+              void onSquareClick(to);
+            }}
+          />
 
+          <aside className="flex w-full flex-col gap-3 sm:w-52">
+
+            <MoveList
+              history={history}
+              whiteLabel={
+                myColor === "w"
+                  ? username ?? "You"
+                  : opponentName ?? "White"
+              }
+              blackLabel={
+                myColor === "b"
+                  ? username ?? "You"
+                  : opponentName ?? "Black"
+              }
+            />
+
+            {game.status !== "finished" && (
+              <>
+                <button
+                  onClick={() =>
+                    resign({
+                      data: { gameId },
+                    })
+                  }
+                  className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
+                >
+                  Resign
+                </button>
+
+                <button
+                  onClick={sendDrawOffer}
+                  disabled={drawOffered}
+                  className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  {drawOffered
+                    ? "Draw offered…"
+                    : "Offer draw"}
+                </button>
+              </>
+            )}
+
+            {incomingDraw &&
+              game.status === "active" && (
+                <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+
+                  <p className="text-xs text-muted-foreground">
+                    {opponentName ?? "Your opponent"} offers a draw.
+                  </p>
+
+                  <button
+                    onClick={async () => {
+                      setIncomingDraw(false);
+
+                      await draw({
+                        data: { gameId },
+                      });
+                    }}
+                    className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground"
+                  >
+                    Accept
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIncomingDraw(false);
+
+                      channelRef.current?.send({
+                        type: "broadcast",
+                        event: "draw-decline",
+                        payload: {
+                          from: user?.id,
+                        },
+                      });
+                    }}
+                    className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground"
+                  >
+                    Decline
+                  </button>
+
+                </div>
+              )}
+
+            <div className="rounded-xl border border-border bg-card p-3">
+
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Board
+              </p>
+
+              <div className="flex flex-wrap gap-1.5">
+
+                {BOARD_THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      theme === t.id
+                        ? "bg-primary text-primary-foreground"
+                        : "border border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+
+              </div>
+            </div>
+
+            {game.status === "finished" && (
+              <button
+                onClick={() => setShowResult(true)}
+                className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+              >
+                Scorecard & review
+              </button>
+            )}
+
+          </aside>
         </div>
 
+        {error && (
+          <p className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
       </div>
+
+      <GameOverDialog
+        open={
+          game.status === "finished" &&
+          showResult
+        }
+        headline={
+          game.result === "draw"
+            ? "Draw"
+            : iWon
+              ? "You won!"
+              : "You lost"
+        }
+        detail={
+          game.result === "draw"
+            ? "The game ended in a draw."
+            : chess?.isCheckmate()
+              ? "Checkmate ended the game."
+              : "The game is over."
+        }
+        history={history}
+        whiteLabel={
+          myColor === "w"
+            ? username ?? "You"
+            : opponentName ?? "White"
+        }
+        blackLabel={
+          myColor === "b"
+            ? username ?? "You"
+            : opponentName ?? "Black"
+        }
+        reportSlot={
+          <ReportPanel gameId={gameId} />
+        }
+        onReview={(review) => {
+          void sendFairPlay({
+            data: {
+              gameId,
+              stats: (["w", "b"] as const).map(
+                (c) => ({
+                  color: c,
+                  engineMatch:
+                    review.fairPlay[c].engineMatch,
+                  accuracy:
+                    review.fairPlay[c].accuracy,
+                  moves:
+                    review.fairPlay[c].moves,
+                  suspicion:
+                    review.fairPlay[c].suspicion,
+                }),
+              ),
+            },
+          }).catch(() => undefined);
+        }}
+        onRematch={() =>
+          navigate({ to: "/" })
+        }
+        onClose={() =>
+          setShowResult(false)
+        }
+      />
+    </Shell>
+  );
+}
+
+function Shell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <main className="flex min-h-screen flex-col items-center bg-background px-4 py-8">
+
+      <div className="w-full max-w-3xl">
+
+        <header className="mb-6 text-center">
+
+          <Link
+            to="/"
+            className="text-xs uppercase tracking-[0.3em] text-muted-foreground hover:text-foreground"
+          >
+            ← Home
+          </Link>
+
+          <h1 className="mt-3 font-serif text-3xl font-bold tracking-tight text-foreground">
+            Online Match
+          </h1>
+
+        </header>
+
+        {children}
+
+      </div>
+
     </main>
   );
 }
