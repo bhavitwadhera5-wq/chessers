@@ -9,8 +9,8 @@ export const Route = createFileRoute("/online")({
 
 type Game = {
   id: string;
-  white_player: string | null;
-  black_player: string | null;
+  white_id: string | null;
+  black_id: string | null;
   white_username: string | null;
   black_username: string | null;
   status: string;
@@ -80,7 +80,7 @@ function OnlineLobby() {
     const { data, error } = await supabase
       .from("games")
       .insert({
-        white_player: user.id,
+        white_id: user.id,
         white_username: username,
         status: "waiting",
         fen: "start",
@@ -108,7 +108,7 @@ function OnlineLobby() {
   async function joinGame(game: Game) {
     if (!user || !username) return;
 
-    if (game.white_player === user.id) {
+    if (game.white_id === user.id) {
       navigate({
         to: "/play/$gameId",
         params: {
@@ -125,7 +125,7 @@ function OnlineLobby() {
     const { error } = await supabase
       .from("games")
       .update({
-        black_player: user.id,
+        black_id: user.id,
         black_username: username,
         status: "playing",
         updated_at: new Date().toISOString(),
