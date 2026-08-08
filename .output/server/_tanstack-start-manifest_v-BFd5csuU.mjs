@@ -1,0 +1,71 @@
+//#region node_modules/.nitro/vite/services/ssr/assets/_tanstack-start-manifest_v-BFd5csuU.js
+var tsrStartManifest = () => ({ routes: {
+	__root__: {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/__root.tsx",
+		children: [
+			"/",
+			"/admin",
+			"/leaderboard",
+			"/online",
+			"/puzzles",
+			"/sitemap.xml",
+			"/solo",
+			"/play/$gameId"
+		],
+		preloads: [
+			"/assets/index-DgQyC2jU.js",
+			"/assets/useRouter-Dpb7RwMI.js",
+			"/assets/link-DlYYoJf6.js"
+		],
+		scripts: [{ attrs: {
+			type: "module",
+			async: !0,
+			src: "/assets/index-DgQyC2jU.js"
+		} }]
+	},
+	"/": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/index.tsx",
+		children: void 0,
+		preloads: ["/assets/routes-DpfnV1Y7.js"]
+	},
+	"/admin": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/admin.tsx",
+		children: void 0,
+		preloads: ["/assets/admin-Bhb3W9Yr.js"]
+	},
+	"/leaderboard": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/leaderboard.tsx",
+		children: void 0,
+		preloads: ["/assets/leaderboard-CWSMOM2f.js", "/assets/chess-ChQH7pbr.js"]
+	},
+	"/online": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/online.tsx",
+		children: void 0,
+		preloads: ["/assets/online-C1q3fhSc.js"]
+	},
+	"/puzzles": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/puzzles.tsx",
+		children: void 0,
+		preloads: [
+			"/assets/puzzles-BCsViUG6.js",
+			"/assets/chess-ChQH7pbr.js",
+			"/assets/sounds-BoFMYbmX.js"
+		]
+	},
+	"/solo": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/solo.tsx",
+		children: void 0,
+		preloads: [
+			"/assets/solo-CSNcqwI8.js",
+			"/assets/chess-ChQH7pbr.js",
+			"/assets/sounds-BoFMYbmX.js"
+		]
+	},
+	"/play/$gameId": {
+		filePath: "C:/Users/HP/Documents/Chessers-Pro/src/routes/play.$gameId.tsx",
+		children: void 0,
+		preloads: ["/assets/play._gameId-C5ml2VsX.js"]
+	}
+} });
+//#endregion
+export { tsrStartManifest };

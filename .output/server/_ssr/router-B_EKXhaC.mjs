@@ -1,0 +1,472 @@
+import { n as __toESM } from "../_runtime.mjs";
+import { t as __exportAll } from "./rolldown-runtime-D7D4PA-g.mjs";
+import { n as require_jsx_runtime, r as require_react, t as QueryClientProvider } from "../_libs/react+tanstack__react-query.mjs";
+import { _ as Link, f as createRouter, g as createRootRouteWithContext, h as createFileRoute, l as Scripts, m as lazyRouteComponent, p as Outlet, u as HeadContent, y as useRouter } from "../_libs/@tanstack/react-router+[...].mjs";
+import { t as supabase } from "./client-BGr9uG5A.mjs";
+import { t as QueryClient } from "../_libs/tanstack__query-core.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/router-B_EKXhaC.js
+var import_react = /* @__PURE__ */ __toESM(require_react());
+var import_jsx_runtime = require_jsx_runtime();
+var styles_default = "/assets/styles-JfxUWkcF.css";
+function reportLovableError(error, context = {}) {
+	if (typeof window === "undefined") return;
+	window.__lovableEvents?.captureException?.(error, {
+		source: "react_error_boundary",
+		route: window.location.pathname,
+		...context
+	}, {
+		mechanism: "react_error_boundary",
+		handled: false,
+		severity: "error"
+	});
+	const message = error instanceof Response ? `Response ${error.status}${error.url ? ` at ${error.url}` : ""}` : error instanceof Error ? error.message : String(error);
+	window.__lovableReportRuntimeError?.({
+		message,
+		stack: error instanceof Error ? error.stack : void 0,
+		filename: window.location.pathname
+	});
+}
+var AuthContext = (0, import_react.createContext)(null);
+var DOMAIN = "clickchess.app";
+var usernameToEmail = (username) => `${username.trim().toLowerCase()}@${DOMAIN}`;
+function AuthProvider({ children }) {
+	const [session, setSession] = (0, import_react.useState)(null);
+	const [username, setUsername] = (0, import_react.useState)(null);
+	const [isAdmin, setIsAdmin] = (0, import_react.useState)(false);
+	const [loading, setLoading] = (0, import_react.useState)(true);
+	(0, import_react.useEffect)(() => {
+		const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+			setSession(next);
+			setLoading(false);
+		});
+		supabase.auth.getSession().then(({ data }) => {
+			setSession(data.session);
+			setLoading(false);
+		});
+		return () => sub.subscription.unsubscribe();
+	}, []);
+	(0, import_react.useEffect)(() => {
+		const uid = session?.user.id;
+		if (!uid) {
+			setUsername(null);
+			setIsAdmin(false);
+			return;
+		}
+		let active = true;
+		Promise.all([supabase.from("profiles").select("username").eq("id", uid).maybeSingle(), supabase.from("user_roles").select("role").eq("user_id", uid).eq("role", "admin").maybeSingle()]).then(([profileResult, roleResult]) => {
+			if (!active) return;
+			setUsername(profileResult.data?.username ?? null);
+			setIsAdmin(roleResult.data?.role === "admin");
+		});
+		return () => {
+			active = false;
+		};
+	}, [session?.user.id]);
+	const signIn = async (name, password) => {
+		const { error } = await supabase.auth.signInWithPassword({
+			email: usernameToEmail(name),
+			password
+		});
+		return error ? "Wrong username or password." : null;
+	};
+	const signUp = async (name, password) => {
+		const clean = name.trim().toLowerCase();
+		if (!/^[a-z0-9_]{3,20}$/.test(clean)) return "Username: 3-20 letters, numbers or underscores.";
+		if (password.length < 6) return "Password must be at least 6 characters.";
+		const { data, error } = await supabase.auth.signUp({
+			email: usernameToEmail(clean),
+			password,
+			options: {
+				data: { username: clean },
+				emailRedirectTo: window.location.origin
+			}
+		});
+		if (error) {
+			if (error.message.toLowerCase().includes("already")) return "That username is taken.";
+			return error.message;
+		}
+		if (data.user) {
+			const { error: profileError } = await supabase.from("profiles").upsert({
+				id: data.user.id,
+				username: clean
+			});
+			if (profileError) console.error(profileError);
+			setUsername(clean);
+		}
+		return null;
+	};
+	const signOut = async () => {
+		await supabase.auth.signOut();
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthContext.Provider, {
+		value: {
+			user: session?.user ?? null,
+			session,
+			username,
+			isAdmin,
+			loading,
+			signIn,
+			signUp,
+			signOut
+		},
+		children
+	});
+}
+function useAuth() {
+	const ctx = (0, import_react.useContext)(AuthContext);
+	if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+	return ctx;
+}
+function NotFoundComponent() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "flex min-h-screen items-center justify-center bg-background px-4",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "max-w-md text-center",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+					className: "text-7xl font-bold text-foreground",
+					children: "404"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+					className: "mt-4 text-xl font-semibold text-foreground",
+					children: "Page not found"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "mt-2 text-sm text-muted-foreground",
+					children: "The page you're looking for doesn't exist or has been moved."
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "mt-6",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+						to: "/",
+						className: "inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+						children: "Go home"
+					})
+				})
+			]
+		})
+	});
+}
+function ErrorComponent({ error, reset }) {
+	console.error(error);
+	const router = useRouter();
+	(0, import_react.useEffect)(() => {
+		reportLovableError(error, { boundary: "tanstack_root_error_component" });
+	}, [error]);
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "flex min-h-screen items-center justify-center bg-background px-4",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "max-w-md text-center",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+					className: "text-xl font-semibold tracking-tight text-foreground",
+					children: "This page didn't load"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "mt-2 text-sm text-muted-foreground",
+					children: "Something went wrong on our end. You can try refreshing or head back home."
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mt-6 flex flex-wrap justify-center gap-2",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						onClick: () => {
+							router.invalidate();
+							reset();
+						},
+						className: "inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+						children: "Try again"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+						href: "/",
+						className: "inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent",
+						children: "Go home"
+					})]
+				})
+			]
+		})
+	});
+}
+var Route$8 = createRootRouteWithContext()({
+	head: () => ({
+		meta: [
+			{ charSet: "utf-8" },
+			{
+				name: "viewport",
+				content: "width=device-width, initial-scale=1"
+			},
+			{ title: "Chessers" },
+			{
+				name: "description",
+				content: "Play Chess Online with Chessers"
+			},
+			{
+				name: "author",
+				content: "Chessers"
+			},
+			{
+				property: "og:title",
+				content: "Chessers"
+			},
+			{
+				property: "og:description",
+				content: "Play Chess Online with Chessers"
+			},
+			{
+				property: "og:type",
+				content: "website"
+			},
+			{
+				name: "twitter:card",
+				content: "summary_large_image"
+			},
+			{
+				name: "twitter:site",
+				content: "@Chessers"
+			}
+		],
+		links: [{
+			rel: "stylesheet",
+			href: styles_default
+		}, {
+			rel: "icon",
+			href: "/favicon.png",
+			type: "image/png"
+		}]
+	}),
+	shellComponent: RootShell,
+	component: RootComponent,
+	notFoundComponent: NotFoundComponent,
+	errorComponent: ErrorComponent
+});
+function RootShell({ children }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("html", {
+		lang: "en",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("head", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HeadContent, {}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("body", { children: [children, /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Scripts, {})] })]
+	});
+}
+function RootComponent() {
+	const { queryClient } = Route$8.useRouteContext();
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QueryClientProvider, {
+		client: queryClient,
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthProvider, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Outlet, {}) })
+	});
+}
+var $$splitComponentImporter$6 = () => import("./routes-dWbuI8o6.mjs");
+var Route$7 = createFileRoute("/")({
+	head: () => ({ meta: [{ title: "Chessers — Play Chess Online or Against a Bot" }, {
+		name: "description",
+		content: "Sign in, play chess against a bot, play online, or solve tactical chess puzzles."
+	}] }),
+	component: lazyRouteComponent($$splitComponentImporter$6, "component")
+});
+var $$splitComponentImporter$5 = () => import("./admin-Dtrd5l-s.mjs");
+var Route$6 = createFileRoute("/admin")({
+	head: () => ({ meta: [
+		{ title: "Moderation Dashboard — Chessers" },
+		{
+			name: "description",
+			content: "Admin-only moderation dashboard for Chessers: review player reports and fair-play engine analysis."
+		},
+		{
+			property: "og:title",
+			content: "Moderation Dashboard — Chessers"
+		},
+		{
+			property: "og:description",
+			content: "Review reports and fair-play flags for Chessers players."
+		},
+		{
+			property: "og:type",
+			content: "website"
+		},
+		{
+			name: "twitter:card",
+			content: "summary"
+		},
+		{
+			name: "robots",
+			content: "noindex,nofollow"
+		}
+	] }),
+	component: lazyRouteComponent($$splitComponentImporter$5, "component")
+});
+var $$splitComponentImporter$4 = () => import("./leaderboard-DY7MXCCT.mjs");
+var Route$5 = createFileRoute("/leaderboard")({
+	head: () => ({ meta: [
+		{ title: "Chess Leaderboard & Player Stats — Chessers" },
+		{
+			name: "description",
+			content: "See the top rated Chessers players, your win/loss/draw record and your recent online games."
+		},
+		{
+			property: "og:title",
+			content: "Chess Leaderboard & Player Stats — Chessers"
+		},
+		{
+			property: "og:description",
+			content: "Global rankings by rating plus your personal record and game history."
+		},
+		{
+			property: "og:type",
+			content: "website"
+		},
+		{
+			name: "twitter:card",
+			content: "summary_large_image"
+		}
+	] }),
+	component: lazyRouteComponent($$splitComponentImporter$4, "component")
+});
+var $$splitComponentImporter$3 = () => import("./online-CPHVxHoI.mjs");
+var Route$4 = createFileRoute("/online")({ component: lazyRouteComponent($$splitComponentImporter$3, "component") });
+var $$splitComponentImporter$2 = () => import("./puzzles-BElFpvjM.mjs");
+var Route$3 = createFileRoute("/puzzles")({
+	head: () => ({ meta: [
+		{ title: "Chess Puzzles & Daily Tactic — Chessers" },
+		{
+			name: "description",
+			content: "Solve mate-in-one chess puzzles, build a solving streak and climb your puzzle rating with a fresh daily tactic."
+		},
+		{
+			property: "og:title",
+			content: "Chess Puzzles & Daily Tactic — Chessers"
+		},
+		{
+			property: "og:description",
+			content: "Tactics trainer with puzzle rating, streaks and a new daily puzzle every day."
+		},
+		{
+			property: "og:type",
+			content: "website"
+		},
+		{
+			name: "twitter:card",
+			content: "summary_large_image"
+		}
+	] }),
+	component: lazyRouteComponent($$splitComponentImporter$2, "component")
+});
+var BASE_URL = "";
+var Route$2 = createFileRoute("/sitemap.xml")({ server: { handlers: { GET: async () => {
+	const xml = [
+		`<?xml version="1.0" encoding="UTF-8"?>`,
+		`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`,
+		...[
+			{
+				path: "/",
+				changefreq: "weekly",
+				priority: "1.0"
+			},
+			{
+				path: "/solo",
+				changefreq: "monthly",
+				priority: "0.8"
+			},
+			{
+				path: "/puzzles",
+				changefreq: "daily",
+				priority: "0.9"
+			},
+			{
+				path: "/leaderboard",
+				changefreq: "daily",
+				priority: "0.7"
+			}
+		].map((e) => [
+			`  <url>`,
+			`    <loc>${BASE_URL}${e.path}</loc>`,
+			e.lastmod ? `    <lastmod>${e.lastmod}</lastmod>` : null,
+			e.changefreq ? `    <changefreq>${e.changefreq}</changefreq>` : null,
+			e.priority ? `    <priority>${e.priority}</priority>` : null,
+			`  </url>`
+		].filter(Boolean).join("\n")),
+		`</urlset>`
+	].join("\n");
+	return new Response(xml, { headers: {
+		"Content-Type": "application/xml",
+		"Cache-Control": "public, max-age=3600"
+	} });
+} } } });
+var $$splitComponentImporter$1 = () => import("./solo-7ikGglHG.mjs");
+var Route$1 = createFileRoute("/solo")({
+	head: () => ({ meta: [
+		{ title: "Play Chess vs the Bot — Chessers" },
+		{
+			name: "description",
+			content: "Click-to-move chess against a capture-hungry bot. Legal moves light up, no signup needed to play."
+		},
+		{
+			property: "og:title",
+			content: "Play Chess vs the Bot — Chessers"
+		},
+		{
+			property: "og:description",
+			content: "Click-to-move chess board with legal move hints and an instant bot opponent."
+		},
+		{
+			property: "og:type",
+			content: "website"
+		},
+		{
+			name: "twitter:card",
+			content: "summary_large_image"
+		}
+	] }),
+	component: lazyRouteComponent($$splitComponentImporter$1, "component")
+});
+var $$splitComponentImporter = () => import("./play._gameId-Cp0IAoCc.mjs");
+var Route = createFileRoute("/play/$gameId")({ component: lazyRouteComponent($$splitComponentImporter, "component") });
+var rootRouteChildren = {
+	IndexRoute: Route$7.update({
+		id: "/",
+		path: "/",
+		getParentRoute: () => Route$8
+	}),
+	AdminRoute: Route$6.update({
+		id: "/admin",
+		path: "/admin",
+		getParentRoute: () => Route$8
+	}),
+	LeaderboardRoute: Route$5.update({
+		id: "/leaderboard",
+		path: "/leaderboard",
+		getParentRoute: () => Route$8
+	}),
+	OnlineRoute: Route$4.update({
+		id: "/online",
+		path: "/online",
+		getParentRoute: () => Route$8
+	}),
+	PuzzlesRoute: Route$3.update({
+		id: "/puzzles",
+		path: "/puzzles",
+		getParentRoute: () => Route$8
+	}),
+	SitemapDotxmlRoute: Route$2.update({
+		id: "/sitemap.xml",
+		path: "/sitemap.xml",
+		getParentRoute: () => Route$8
+	}),
+	SoloRoute: Route$1.update({
+		id: "/solo",
+		path: "/solo",
+		getParentRoute: () => Route$8
+	}),
+	PlayGameIdRoute: Route.update({
+		id: "/play/$gameId",
+		path: "/play/$gameId",
+		getParentRoute: () => Route$8
+	})
+};
+var routeTree = Route$8._addFileChildren(rootRouteChildren)._addFileTypes();
+var router_exports = /* @__PURE__ */ __exportAll({ getRouter: () => getRouter });
+var getRouter = () => {
+	const queryClient = new QueryClient();
+	return createRouter({
+		routeTree,
+		context: { queryClient },
+		scrollRestoration: true,
+		defaultPreloadStaleTime: 0
+	});
+};
+//#endregion
+export { Route as n, useAuth as r, router_exports as t };

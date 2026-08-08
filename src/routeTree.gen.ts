@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
+import { Route as OnlineRouteImport } from './routes/online'
 import { Route as PuzzlesRouteImport } from './routes/puzzles'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SoloRouteImport } from './routes/solo'
@@ -30,6 +31,11 @@ const AdminRoute = AdminRouteImport.update({
 const LeaderboardRoute = LeaderboardRouteImport.update({
   id: '/leaderboard',
   path: '/leaderboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnlineRoute = OnlineRouteImport.update({
+  id: '/online',
+  path: '/online',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PuzzlesRoute = PuzzlesRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/online': typeof OnlineRoute
   '/puzzles': typeof PuzzlesRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/solo': typeof SoloRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/online': typeof OnlineRoute
   '/puzzles': typeof PuzzlesRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/solo': typeof SoloRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/online': typeof OnlineRoute
   '/puzzles': typeof PuzzlesRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/solo': typeof SoloRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/leaderboard'
+    | '/online'
     | '/puzzles'
     | '/sitemap.xml'
     | '/solo'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/leaderboard'
+    | '/online'
     | '/puzzles'
     | '/sitemap.xml'
     | '/solo'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/leaderboard'
+    | '/online'
     | '/puzzles'
     | '/sitemap.xml'
     | '/solo'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   LeaderboardRoute: typeof LeaderboardRoute
+  OnlineRoute: typeof OnlineRoute
   PuzzlesRoute: typeof PuzzlesRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   SoloRoute: typeof SoloRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/leaderboard'
       fullPath: '/leaderboard'
       preLoaderRoute: typeof LeaderboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/online': {
+      id: '/online'
+      path: '/online'
+      fullPath: '/online'
+      preLoaderRoute: typeof OnlineRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/puzzles': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   LeaderboardRoute: LeaderboardRoute,
+  OnlineRoute: OnlineRoute,
   PuzzlesRoute: PuzzlesRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   SoloRoute: SoloRoute,

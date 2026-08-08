@@ -23,6 +23,27 @@ var public_assets_data_default = {
 		"size": 20373,
 		"path": "../public/favicon.ico"
 	},
+	"/assets/admin-Bhb3W9Yr.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"34d1-dlDtrHTUbfNVvFN9OTlkPEnW4E8\"",
+		"mtime": "2026-08-08T07:10:30.603Z",
+		"size": 13521,
+		"path": "../public/assets/admin-Bhb3W9Yr.js"
+	},
+	"/assets/chess-ChQH7pbr.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"8836-OQu9tF1csjjui1hWoGGgzKVmFJ4\"",
+		"mtime": "2026-08-08T07:10:30.603Z",
+		"size": 34870,
+		"path": "../public/assets/chess-ChQH7pbr.js"
+	},
+	"/assets/index-DgQyC2jU.js": {
+		"type": "text/javascript; charset=utf-8",
+		"etag": "\"7f572-usfseRlu64ivuAyUVmRJ9h1K104\"",
+		"mtime": "2026-08-08T07:10:30.601Z",
+		"size": 521586,
+		"path": "../public/assets/index-DgQyC2jU.js"
+	},
 	"/robots.txt": {
 		"type": "text/plain; charset=utf-8",
 		"etag": "\"17-ZZkCVrbr4BSdjt/K43J0tq8+Qq4\"",
@@ -30,117 +51,75 @@ var public_assets_data_default = {
 		"size": 23,
 		"path": "../public/robots.txt"
 	},
-	"/assets/admin-CTnB-vBm.js": {
+	"/assets/online-C1q3fhSc.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"22e5-PlL8WZcHQJt5T6fiQV6HrRvv6+o\"",
-		"mtime": "2026-08-07T10:11:53.667Z",
-		"size": 8933,
-		"path": "../public/assets/admin-CTnB-vBm.js"
+		"etag": "\"1039-tLZgpfdkuvxKbmRzH1Z8smgi5Us\"",
+		"mtime": "2026-08-08T07:10:30.607Z",
+		"size": 4153,
+		"path": "../public/assets/online-C1q3fhSc.js"
 	},
-	"/assets/auth-middleware--C-gYQvh.js": {
+	"/assets/leaderboard-CWSMOM2f.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"128a-BEi+kGDwhYFK56z9MVOpjC5XJwM\"",
-		"mtime": "2026-08-07T10:11:53.671Z",
-		"size": 4746,
-		"path": "../public/assets/auth-middleware--C-gYQvh.js"
+		"etag": "\"1536-bjfO/giFPtKhlaNiE5a6wtf7yUk\"",
+		"mtime": "2026-08-08T07:10:30.605Z",
+		"size": 5430,
+		"path": "../public/assets/leaderboard-CWSMOM2f.js"
 	},
-	"/assets/boardThemes-j2_-YYBO.js": {
+	"/assets/link-DlYYoJf6.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"209-WjNiDgygGEFHU1bdubOIUWosBUg\"",
-		"mtime": "2026-08-07T10:11:53.674Z",
-		"size": 521,
-		"path": "../public/assets/boardThemes-j2_-YYBO.js"
+		"etag": "\"6694-Qfnj6XX32BIkiSLtBQlGX2FHW4Q\"",
+		"mtime": "2026-08-08T07:10:30.606Z",
+		"size": 26260,
+		"path": "../public/assets/link-DlYYoJf6.js"
 	},
-	"/assets/chess-ChQH7pbr.js": {
+	"/assets/routes-DpfnV1Y7.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"8836-OQu9tF1csjjui1hWoGGgzKVmFJ4\"",
-		"mtime": "2026-08-07T10:11:53.675Z",
-		"size": 34870,
-		"path": "../public/assets/chess-ChQH7pbr.js"
+		"etag": "\"1519-px62CKECtc/5NkuFyQqB0Ltymkw\"",
+		"mtime": "2026-08-08T07:10:30.611Z",
+		"size": 5401,
+		"path": "../public/assets/routes-DpfnV1Y7.js"
 	},
-	"/assets/humanBots-0LtFFWUB.js": {
+	"/assets/play._gameId-C5ml2VsX.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"725-KB1HppWVDPrv7M1cfv3IAQwOq7o\"",
-		"mtime": "2026-08-07T10:11:53.681Z",
-		"size": 1829,
-		"path": "../public/assets/humanBots-0LtFFWUB.js"
+		"etag": "\"2d7e-4XicIlybotaWJXYRYSEVuh3UNYs\"",
+		"mtime": "2026-08-08T07:10:30.608Z",
+		"size": 11646,
+		"path": "../public/assets/play._gameId-C5ml2VsX.js"
 	},
-	"/assets/engine-BniCeKTo.js": {
+	"/assets/puzzles-BCsViUG6.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"3de4-g2fHC5UkmtzJSTFn5ewmZVMTLVo\"",
-		"mtime": "2026-08-07T10:11:53.677Z",
-		"size": 15844,
-		"path": "../public/assets/engine-BniCeKTo.js"
+		"etag": "\"242b-mggqtSJ2ZIihHYUKjBZmNV6C0gU\"",
+		"mtime": "2026-08-08T07:10:30.610Z",
+		"size": 9259,
+		"path": "../public/assets/puzzles-BCsViUG6.js"
 	},
-	"/assets/games.functions-DLJaCjNR.js": {
+	"/assets/solo-CSNcqwI8.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"3c5-YYWha9K9VD8f6L4ak+y5GGF0Xp8\"",
-		"mtime": "2026-08-07T10:11:53.679Z",
-		"size": 965,
-		"path": "../public/assets/games.functions-DLJaCjNR.js"
+		"etag": "\"8728-Qv7pERkUJads+rDY0bfuMlmCEzI\"",
+		"mtime": "2026-08-08T07:10:30.612Z",
+		"size": 34600,
+		"path": "../public/assets/solo-CSNcqwI8.js"
 	},
-	"/assets/MoveList-BI1v-RYz.js": {
+	"/assets/sounds-BoFMYbmX.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"1ec6-0mppjs50lwQbk8KnQEKRA/lc4HU\"",
-		"mtime": "2026-08-07T10:11:53.665Z",
-		"size": 7878,
-		"path": "../public/assets/MoveList-BI1v-RYz.js"
+		"etag": "\"11ec-N7IvXGT5Qp/E1g+JFuCkJ6NZEic\"",
+		"mtime": "2026-08-08T07:10:30.613Z",
+		"size": 4588,
+		"path": "../public/assets/sounds-BoFMYbmX.js"
 	},
-	"/assets/play._gameId-Dm6zINW8.js": {
+	"/assets/useRouter-Dpb7RwMI.js": {
 		"type": "text/javascript; charset=utf-8",
-		"etag": "\"3270-FndiQiaqmiD6QJ8qajkxF//kQsU\"",
-		"mtime": "2026-08-07T10:11:53.684Z",
-		"size": 12912,
-		"path": "../public/assets/play._gameId-Dm6zINW8.js"
+		"etag": "\"2144-OAWOWZt+i/sSs5fMTIk74KvSiew\"",
+		"mtime": "2026-08-08T07:10:30.615Z",
+		"size": 8516,
+		"path": "../public/assets/useRouter-Dpb7RwMI.js"
 	},
-	"/assets/leaderboard-KwPIfQ-X.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"1087-BkSonC4uH752+vuIngA08KCSBNI\"",
-		"mtime": "2026-08-07T10:11:53.682Z",
-		"size": 4231,
-		"path": "../public/assets/leaderboard-KwPIfQ-X.js"
-	},
-	"/assets/puzzles-B1ikFzsL.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"2458-zs1okJJgCRfka3V9fdFzgyoLaLA\"",
-		"mtime": "2026-08-07T10:11:53.686Z",
-		"size": 9304,
-		"path": "../public/assets/puzzles-B1ikFzsL.js"
-	},
-	"/assets/solo-p6ZpPV9N.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"2c65-54vhZ/2lhovUHFHi8x3S68O0jbw\"",
-		"mtime": "2026-08-07T10:11:53.692Z",
-		"size": 11365,
-		"path": "../public/assets/solo-p6ZpPV9N.js"
-	},
-	"/assets/sounds-CdWsviGw.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"101a-2jBTYtZ7+Zgws1+sE+HrhbKc6tQ\"",
-		"mtime": "2026-08-07T10:11:53.694Z",
-		"size": 4122,
-		"path": "../public/assets/sounds-CdWsviGw.js"
-	},
-	"/assets/routes-DwqlePQ2.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"21dd-5zYkMo6ICE5ptfreU9vgCP2EqJ4\"",
-		"mtime": "2026-08-07T10:11:53.691Z",
-		"size": 8669,
-		"path": "../public/assets/routes-DwqlePQ2.js"
-	},
-	"/assets/useRouter-BQ61MA5v.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"2177-uxI5mvY9gsPEOFj2YTc0N2drqWM\"",
-		"mtime": "2026-08-07T10:11:53.696Z",
-		"size": 8567,
-		"path": "../public/assets/useRouter-BQ61MA5v.js"
-	},
-	"/assets/styles-D8gT_H8b.css": {
+	"/assets/styles-JfxUWkcF.css": {
 		"type": "text/css; charset=utf-8",
-		"etag": "\"13316-doiAC8IYRL9KxNQZuUeyeDTts7U\"",
-		"mtime": "2026-08-07T10:11:53.697Z",
-		"size": 78614,
-		"path": "../public/assets/styles-D8gT_H8b.css"
+		"etag": "\"13ee3-WNzkV/VECT3UijFOdwMb56graAo\"",
+		"mtime": "2026-08-08T07:10:30.618Z",
+		"size": 81635,
+		"path": "../public/assets/styles-JfxUWkcF.css"
 	},
 	"/favicon.png": {
 		"type": "image/png",
@@ -148,13 +127,6 @@ var public_assets_data_default = {
 		"mtime": "2026-08-06T09:01:50.647Z",
 		"size": 862364,
 		"path": "../public/favicon.png"
-	},
-	"/assets/index-By2OZUL5.js": {
-		"type": "text/javascript; charset=utf-8",
-		"etag": "\"85d45-TIPFPtWqnIr27HPX9XA2Iwsu54w\"",
-		"mtime": "2026-08-07T10:11:53.662Z",
-		"size": 548165,
-		"path": "../public/assets/index-By2OZUL5.js"
 	}
 };
 //#endregion
