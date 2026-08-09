@@ -1,101 +1,410 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { Chess } from "chess.js";
-import {
-  humanBotByName,
-  humanBotMove,
-  pickHumanBot,
-} from "@/lib/humanBots";
+import { pickHumanBot } from "@/lib/humanBots";
 
 type Color = "w" | "b";
+type RatingType = "rapid" | "blitz" | "bullet";
 
-const START_FEN =
-  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+type Rating = {
+  rating: number;
+  rd: number;
+};
 
-/**
- * Return the colour belonging to a real logged-in player.
- */
-function getPlayerColor(
-  game: {
-    white_id: string | null;
-    black_id: string | null;
-  },
-  userId: string,
-): Color | null {
-  if (game.white_id === userId) return "w";
-  if (game.black_id === userId) return "b";
-  return null;
+type GameRating = {
+  white: Rating;
+  black: Rating;
+};
+
+/* =========================================================
+   RATING SYSTEM
+   ========================================================= */
+
+const INITIAL_RATING = 1000;
+const INITIAL_RD = 350;
+
+const MIN_RATING = 100;
+const MAX_RATING = 3000;
+
+const MIN_RD = 60;
+const MAX_RD = 350;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
-/**
- * Get the username stored on the bot seat.
- *
- * Bot seats have a NULL player ID and the bot name
- * is stored in the corresponding username column.
- */
-function getBotName(
-  game: {
-    white_id: string | null;
-    black_id: string | null;
-    white_username: string | null;
-    black_username: string | null;
-  },
-): string | null {
-  if (
-    game.white_id === null &&
-    game.white_username
-  ) {
-    return game.white_username;
-  }
-
-  if (
-    game.black_id === null &&
-    game.black_username
-  ) {
-    return game.black_username;
-  }
-
-  return null;
+function getRatingType(minutes: number): RatingType {
+  /*
+   * 5 minutes  -> Blitz
+   * 10 minutes -> Rapid
+   * 0 minutes  -> Bullet / untimed
+   *
+   * If you later add 1+0, 2+1, etc., this function
+   * can be changed easily.
+   */
+  if (minutes === 10) return "rapid";
+  if (minutes === 5) return "blitz";
+  return "bullet";
 }
 
-/**
- * Get the bot's colour.
+/*
+ * Glicko-style rating update.
+
+ * This is intentionally kept self-contained so we don't
+ * need another npm package.
  */
-function getBotColor(
-  game: {
-    white_id: string | null;
-    black_id: string | null;
-    white_username: string | null;
-    black_username: string | null;
-  },
-): Color | null {
-  if (
-    game.white_id === null &&
-    game.white_username
-  ) {
-    return "w";
-  }
+function glickoUpdate(
+  player: Rating,
+  opponent: Rating,
+  score: number,
+): Rating {
+  const q = Math.log(10) / 400;
 
-  if (
-    game.black_id === null &&
-    game.black_username
-  ) {
-    return "b";
-  }
+  const rd = clamp(player.rd, MIN_RD, MAX_RD);
+  const opponentRd = clamp(opponent.rd, MIN_RD, MAX_RD);
 
-  return null;
+  const g = 1 / Math.sqrt(
+    1 + (3 * q * q * opponentRd * opponentRd) / (Math.PI * Math.PI),
+  );
+
+  const expected =
+    1 /
+    (1 +
+      Math.pow(
+        10,
+        (-g * (player.rating - opponent.rating)) / 400,
+      ));
+
+  /*
+   * Smaller RD = more established player.
+   * Larger RD = more uncertain player.
+   */
+  const variance =
+    1 /
+    (q * q * g * g * expected * (1 - expected));
+
+  const improvement =
+    q /
+    (1 / (rd * rd) + 1 / variance) *
+    g *
+    (score - expected);
+
+  const newRating = player.rating + 400 * improvement;
+
+  /*
+   * RD becomes smaller as we gain information.
+   * We keep it from becoming unrealistically tiny.
+   */
+  const newRd = Math.sqrt(
+    1 /
+      (1 / (rd * rd) + 1 / variance),
+  );
+
+  return {
+    rating: Math.round(
+      clamp(newRating, MIN_RATING, MAX_RATING),
+    ),
+    rd: Math.round(
+      clamp(newRd, MIN_RD, MAX_RD),
+    ),
+  };
 }
 
-/**
- * Find an opponent or create a new waiting game.
- *
- * This version only uses columns that exist in your
- * current games table.
+/*
+ * New / inactive players should be uncertain.
  */
+function increaseRd(rd: number, amount = 12) {
+  return clamp(rd + amount, MIN_RD, MAX_RD);
+}
+
+/*
+ * Convert a normal game result into a rating score.
+ */
+function resultScore(
+  result: string | null,
+  color: Color,
+) {
+  if (result === "draw") return 0.5;
+
+  if (result === "white") {
+    return color === "w" ? 1 : 0;
+  }
+
+  if (result === "black") {
+    return color === "b" ? 1 : 0;
+  }
+
+  return 0.5;
+}
+
+/* =========================================================
+   RATING DATABASE HELPERS
+   ========================================================= */
+
+function getRatingFromProfile(
+  profile: any,
+  type: RatingType,
+): Rating {
+  const eloKey = `${type}_elo`;
+  const rdKey = `${type}_rd`;
+
+  return {
+    rating:
+      typeof profile?.[eloKey] === "number"
+        ? profile[eloKey]
+        : typeof profile?.elo === "number"
+          ? profile.elo
+          : INITIAL_RATING,
+
+    rd:
+      typeof profile?.[rdKey] === "number"
+        ? profile[rdKey]
+        : INITIAL_RD,
+  };
+}
+
+function ratingColumns(type: RatingType) {
+  return {
+    elo: `${type}_elo`,
+    rd: `${type}_rd`,
+  } as const;
+}
+
+/* =========================================================
+   APPLY RATING CHANGES
+   ========================================================= */
+
+async function applyRatings(gameId: string) {
+  const { supabaseAdmin } =
+    await import("@/integrations/supabase/client.server");
+
+  const { data: game } = await supabaseAdmin
+    .from("games")
+    .select(
+      "id, white_id, black_id, result, status, elo_applied, bot_name, bot_elo, time_control",
+    )
+    .eq("id", gameId)
+    .maybeSingle();
+
+  if (!game) return;
+
+  if (game.status !== "finished") return;
+
+  if (game.elo_applied) return;
+
+  const ratingType = getRatingType(
+    Number(game.time_control ?? 0),
+  );
+
+  const columns = ratingColumns(ratingType);
+
+  /*
+   * =======================================================
+   * BOT GAME
+   * =======================================================
+   */
+
+  if (
+    game.bot_name &&
+    (!game.white_id || !game.black_id)
+  ) {
+    const humanId = game.white_id ?? game.black_id;
+
+    if (!humanId) return;
+
+    const humanColor: Color = game.white_id
+      ? "w"
+      : "b";
+
+    const { data: profile } =
+      await supabaseAdmin
+        .from("profiles")
+        .select(
+          `id, elo, ${columns.elo}, ${columns.rd}`,
+        )
+        .eq("id", humanId)
+        .maybeSingle();
+
+    if (!profile) return;
+
+    const humanRating =
+      getRatingFromProfile(profile, ratingType);
+
+    const botRating: Rating = {
+      rating:
+        typeof game.bot_elo === "number"
+          ? game.bot_elo
+          : INITIAL_RATING,
+
+      rd: 100,
+    };
+
+    const score = resultScore(
+      game.result,
+      humanColor,
+    );
+
+    let updated =
+      glickoUpdate(
+        humanRating,
+        botRating,
+        score,
+      );
+
+    /*
+     * Bot games have a reduced effect.
+     * This prevents someone farming rating against bots.
+     */
+    updated = {
+      rating: Math.round(
+        humanRating.rating +
+          (updated.rating - humanRating.rating) *
+            0.35,
+      ),
+
+      rd: Math.round(
+        humanRating.rd +
+          (updated.rd - humanRating.rd) *
+            0.35,
+      ),
+    };
+
+    await supabaseAdmin
+      .from("profiles")
+      .update({
+        [columns.elo]: updated.rating,
+        [columns.rd]: updated.rd,
+        rated_games:
+          Number(profile.rated_games ?? 0) + 1,
+        last_rated_at: new Date().toISOString(),
+      })
+      .eq("id", humanId);
+
+    await supabaseAdmin
+      .from("games")
+      .update({
+        elo_applied: true,
+      })
+      .eq("id", gameId);
+
+    return;
+  }
+
+  /*
+   * =======================================================
+   * HUMAN VS HUMAN
+   * =======================================================
+   */
+
+  if (!game.white_id || !game.black_id) return;
+
+  const { data: profiles } =
+    await supabaseAdmin
+      .from("profiles")
+      .select(
+        `id, elo, ${columns.elo}, ${columns.rd}, rated_games`,
+      )
+      .in("id", [
+        game.white_id,
+        game.black_id,
+      ]);
+
+  if (!profiles || profiles.length !== 2) {
+    return;
+  }
+
+  const whiteProfile = profiles.find(
+    (p) => p.id === game.white_id,
+  );
+
+  const blackProfile = profiles.find(
+    (p) => p.id === game.black_id,
+  );
+
+  if (!whiteProfile || !blackProfile) {
+    return;
+  }
+
+  const whiteRating =
+    getRatingFromProfile(
+      whiteProfile,
+      ratingType,
+    );
+
+  const blackRating =
+    getRatingFromProfile(
+      blackProfile,
+      ratingType,
+    );
+
+  const whiteScore = resultScore(
+    game.result,
+    "w",
+  );
+
+  const blackScore = 1 - whiteScore;
+
+  const newWhite =
+    glickoUpdate(
+      whiteRating,
+      blackRating,
+      whiteScore,
+    );
+
+  const newBlack =
+    glickoUpdate(
+      blackRating,
+      whiteRating,
+      blackScore,
+    );
+
+  /*
+   * Update both players.
+   */
+  await supabaseAdmin
+    .from("profiles")
+    .update({
+      [columns.elo]: newWhite.rating,
+      [columns.rd]: newWhite.rd,
+      rated_games:
+        Number(whiteProfile.rated_games ?? 0) + 1,
+      last_rated_at:
+        new Date().toISOString(),
+    })
+    .eq("id", whiteProfile.id);
+
+  await supabaseAdmin
+    .from("profiles")
+    .update({
+      [columns.elo]: newBlack.rating,
+      [columns.rd]: newBlack.rd,
+      rated_games:
+        Number(blackProfile.rated_games ?? 0) + 1,
+      last_rated_at:
+        new Date().toISOString(),
+    })
+    .eq("id", blackProfile.id);
+
+  /*
+   * IMPORTANT:
+   * This prevents rating changes from being applied twice.
+   */
+  await supabaseAdmin
+    .from("games")
+    .update({
+      elo_applied: true,
+    })
+    .eq("id", gameId);
+}
+
+/* =========================================================
+   FIND OR CREATE GAME
+   ========================================================= */
+
 export const findOrCreateGame =
   createServerFn({ method: "POST" })
     .middleware([requireSupabaseAuth])
-    .validator(
+    .inputValidator(
       (data: {
         opponentUsername?: string | null;
         color?: "w" | "b" | "random";
@@ -103,45 +412,55 @@ export const findOrCreateGame =
       }) => data,
     )
     .handler(async ({ data, context }) => {
-      const { supabase, userId } = context;
+      const {
+        supabase,
+        userId,
+      } = context;
 
       const wanted =
         (data.opponentUsername ?? "")
           .trim()
           .toLowerCase() || null;
 
-      const requestedColor =
-        data.color ?? "random";
+      const minutes = [0, 5, 10].includes(
+        Number(data.minutes),
+      )
+        ? Number(data.minutes)
+        : 0;
+
+      const pref =
+        data.color ?? "w";
 
       const myColor: Color =
-        requestedColor === "random"
+        pref === "random"
           ? Math.random() < 0.5
             ? "w"
             : "b"
-          : requestedColor;
+          : pref;
 
-      /*
-       * Get our username.
-       *
-       * We deliberately don't query "banned" because
-       * that column does not exist in your current
-       * profiles table.
-       */
       const { data: me } =
         await supabase
           .from("profiles")
-          .select("username")
+          .select(
+            "username, banned, ban_reason",
+          )
           .eq("id", userId)
           .maybeSingle();
 
-      const myUsername =
-        me?.username ?? "Player";
+      if (me?.banned) {
+        throw new Error(
+          me.ban_reason
+            ? `Your account is banned: ${me.ban_reason}`
+            : "Your account is banned from online play.",
+        );
+      }
 
-      /*
-       * If a username was entered, check whether
-       * that player exists.
-       */
-      let invitedUsername: string | null = null;
+      const myUsername =
+        me?.username ?? null;
+
+      let matchedName:
+        | string
+        | null = null;
 
       if (wanted) {
         const { data: target } =
@@ -155,206 +474,163 @@ export const findOrCreateGame =
           target &&
           target.id !== userId
         ) {
-          invitedUsername =
+          matchedName =
             target.username;
         }
       }
 
       /*
-       * Look for an existing waiting game.
-       *
-       * We don't require time_control because that
-       * column does not exist in your database.
+       * Join an existing waiting game.
        */
-      const freeColumn =
+
+      const seat =
         myColor === "w"
           ? "white_id"
           : "black_id";
 
-      const opponentColumn =
+      const otherSeat =
         myColor === "w"
           ? "black_id"
           : "white_id";
 
-      const {
-        data: waitingGames,
-        error: waitingError,
-      } = await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, white_username, black_username, status, fen, turn, winner, created_at",
-        )
-        .eq("status", "waiting")
-        .is(freeColumn, null)
-        .not(opponentColumn, "is", null)
-        .order("created_at", {
-          ascending: true,
-        })
-        .limit(20);
+      const { data: waiting } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, invited_username, time_control",
+          )
+          .eq("status", "waiting")
+          .eq("time_control", minutes)
+          .is(seat, null)
+          .not(otherSeat, "is", null)
+          .order("created_at", {
+            ascending: true,
+          })
+          .limit(20);
 
-      if (waitingError) {
-        throw new Error(
-          `Could not find waiting games: ${waitingError.message}`,
+      const candidates =
+        (waiting ?? []).filter(
+          (g) =>
+            g[
+              otherSeat as
+                | "white_id"
+                | "black_id"
+            ] !== userId &&
+            (!g.invited_username ||
+              (myUsername &&
+                g.invited_username ===
+                  myUsername)),
         );
-      }
 
-      /*
-       * Prefer a game where the other player is
-       * the requested opponent.
-       */
-      let chosenGame =
-        waitingGames?.find((game) => {
-          const opponentName =
-            myColor === "w"
-              ? game.black_username
-              : game.white_username;
+      const preferred =
+        candidates.find(
+          (g) =>
+            myUsername &&
+            g.invited_username ===
+              myUsername,
+        ) ?? candidates[0];
 
-          return (
-            invitedUsername !== null &&
-            opponentName === invitedUsername
-          );
-        }) ?? null;
-
-      /*
-       * Otherwise use the oldest waiting game.
-       */
-      if (!chosenGame) {
-        chosenGame =
-          waitingGames?.[0] ?? null;
-      }
-
-      /*
-       * Join an existing game.
-       */
-      if (chosenGame) {
-        const updateData =
-          myColor === "w"
-            ? {
-                white_id: userId,
-                white_username:
-                  myUsername,
-                status: "active",
-                fen:
-                  chosenGame.fen &&
-                  chosenGame.fen !== "start"
-                    ? chosenGame.fen
-                    : START_FEN,
-              }
-            : {
-                black_id: userId,
-                black_username:
-                  myUsername,
-                status: "active",
-                fen:
-                  chosenGame.fen &&
-                  chosenGame.fen !== "start"
-                    ? chosenGame.fen
-                    : START_FEN,
-              };
+      if (preferred) {
+        const clockMs = minutes
+          ? minutes * 60000
+          : null;
 
         const {
           data: joined,
-          error: joinError,
+          error,
         } = await supabase
           .from("games")
-          .update(updateData)
-          .eq("id", chosenGame.id)
+          .update({
+            white_id:
+              myColor === "w"
+                ? userId
+                : preferred.white_id,
+
+            black_id:
+              myColor === "b"
+                ? userId
+                : preferred.black_id,
+
+            status: "active",
+            white_ms: clockMs,
+            black_ms: clockMs,
+            turn_started_at:
+              new Date().toISOString(),
+          })
+          .eq("id", preferred.id)
           .eq("status", "waiting")
-          .is(freeColumn, null)
+          .is(seat, null)
           .select("id")
           .maybeSingle();
 
-        if (joinError) {
-          throw new Error(
-            `Could not join the game: ${joinError.message}`,
-          );
-        }
-
-        if (joined) {
+        if (!error && joined) {
           return {
             gameId: joined.id,
             mode: "joined" as const,
-            opponent:
-              myColor === "w"
-                ? chosenGame.black_username
-                : chosenGame.white_username,
+            opponent: null,
             color: myColor,
             unknownUsername:
               wanted !== null &&
-              invitedUsername === null,
+              matchedName === null,
           };
         }
       }
 
       /*
-       * No suitable waiting game exists.
-       *
-       * Create a fresh one.
-       *
-       * The empty seat has NULL ID and NULL username.
+       * Otherwise create a waiting game.
        */
-      const insertData =
-        myColor === "w"
-          ? {
-              white_id: userId,
-              black_id: null,
-              white_username:
-                myUsername,
-              black_username: null,
-              status: "waiting",
-              fen: START_FEN,
-              turn: "w",
-              winner: null,
-            }
-          : {
-              white_id: null,
-              black_id: userId,
-              white_username: null,
-              black_username:
-                myUsername,
-              status: "waiting",
-              fen: START_FEN,
-              turn: "w",
-              winner: null,
-            };
 
       const {
         data: created,
         error: createError,
       } = await supabase
         .from("games")
-        .insert(insertData)
+        .insert({
+          white_id:
+            myColor === "w"
+              ? userId
+              : null,
+
+          black_id:
+            myColor === "b"
+              ? userId
+              : null,
+
+          invited_username:
+            matchedName,
+
+          time_control: minutes,
+        })
         .select("id")
         .single();
 
       if (createError || !created) {
         throw new Error(
-          createError?.message ??
-            "Could not create a game.",
+          "Could not create a game.",
         );
       }
 
       return {
         gameId: created.id,
-        mode: invitedUsername
+        mode: matchedName
           ? ("invited" as const)
           : ("open" as const),
-        opponent:
-          invitedUsername,
+        opponent: matchedName,
         color: myColor,
         unknownUsername:
           wanted !== null &&
-          invitedUsername === null,
+          matchedName === null,
       };
     });
 
-/**
- * Make a real player's chess move.
- */
+/* =========================================================
+   MAKE MOVE
+   ========================================================= */
+
 export const makeMove =
   createServerFn({ method: "POST" })
     .middleware([requireSupabaseAuth])
-    .validator(
+    .inputValidator(
       (data: {
         gameId: string;
         from: string;
@@ -367,22 +643,14 @@ export const makeMove =
         userId,
       } = context;
 
-      const {
-        data: game,
-        error: gameError,
-      } = await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, white_username, black_username, status, fen, turn, winner",
-        )
-        .eq("id", data.gameId)
-        .maybeSingle();
-
-      if (gameError) {
-        throw new Error(
-          `Could not load game: ${gameError.message}`,
-        );
-      }
+      const { data: game } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, fen, status, time_control, white_ms, black_ms, turn_started_at",
+          )
+          .eq("id", data.gameId)
+          .maybeSingle();
 
       if (!game) {
         throw new Error(
@@ -390,40 +658,27 @@ export const makeMove =
         );
       }
 
-      if (
-        game.status !== "active"
-      ) {
+      if (game.status !== "active") {
         throw new Error(
           "This game is not in play.",
         );
       }
 
-      const myColor =
-        getPlayerColor(
-          game,
-          userId,
-        );
+      const myColor: Color | null =
+        game.white_id === userId
+          ? "w"
+          : game.black_id === userId
+            ? "b"
+            : null;
 
-      /*
-       * THIS IS THE IMPORTANT PLAYER CHECK.
-       *
-       * The game stores the actual Supabase Auth ID
-       * in white_id / black_id.
-       */
       if (!myColor) {
         throw new Error(
           "You are not a player in this game.",
         );
       }
 
-      const fen =
-        game.fen === "start" ||
-        !game.fen
-          ? START_FEN
-          : game.fen;
-
       const chess =
-        new Chess(fen);
+        new Chess(game.fen);
 
       if (
         chess.turn() !== myColor
@@ -433,9 +688,83 @@ export const makeMove =
         );
       }
 
+      let whiteMs =
+        game.white_ms;
+
+      let blackMs =
+        game.black_ms;
+
       /*
-       * Make sure the requested move is legal.
+       * Charge the clock before move.
        */
+
+      if (
+        game.time_control > 0 &&
+        game.turn_started_at
+      ) {
+        const elapsed =
+          Date.now() -
+          new Date(
+            game.turn_started_at,
+          ).getTime();
+
+        const remaining =
+          (
+            myColor === "w"
+              ? whiteMs
+              : blackMs
+          ) ??
+          game.time_control * 60000;
+
+        const left =
+          remaining - elapsed;
+
+        if (left <= 0) {
+          await supabase
+            .from("games")
+            .update({
+              status: "finished",
+
+              result:
+                myColor === "w"
+                  ? "black"
+                  : "white",
+
+              white_ms:
+                myColor === "w"
+                  ? 0
+                  : whiteMs,
+
+              black_ms:
+                myColor === "b"
+                  ? 0
+                  : blackMs,
+            })
+            .eq(
+              "id",
+              game.id,
+            );
+
+          await applyRatings(
+            game.id,
+          );
+
+          throw new Error(
+            "Your time ran out.",
+          );
+        }
+
+        if (myColor === "w") {
+          whiteMs = left;
+        } else {
+          blackMs = left;
+        }
+      }
+
+      /*
+       * Validate move with chess.js.
+       */
+
       try {
         chess.move({
           from: data.from,
@@ -451,89 +780,80 @@ export const makeMove =
       const over =
         chess.isGameOver();
 
-      let winner:
-        | "white"
-        | "black"
-        | "draw"
+      let result:
+        | string
         | null = null;
 
       if (over) {
         if (
           chess.isCheckmate()
         ) {
-          winner =
+          result =
             chess.turn() === "w"
               ? "black"
               : "white";
         } else {
-          winner = "draw";
+          result = "draw";
         }
       }
 
-      const nextStatus = over
-        ? "finished"
-        : "active";
+      const { error } =
+        await supabase
+          .from("games")
+          .update({
+            fen: chess.fen(),
 
-      const nextTurn =
-        chess.turn();
+            last_move:
+              `${data.from}${data.to}`,
 
-      const {
-        error: saveError,
-      } = await supabase
-        .from("games")
-        .update({
-          fen: chess.fen(),
-          turn: nextTurn,
-          status: nextStatus,
-          winner,
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq("id", game.id);
+            status: over
+              ? "finished"
+              : "active",
 
-      if (saveError) {
+            result,
+
+            white_ms: whiteMs,
+            black_ms: blackMs,
+
+            turn_started_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "id",
+            game.id,
+          );
+
+      if (error) {
         throw new Error(
-          `Could not save your move: ${saveError.message}`,
+          "Could not save your move.",
+        );
+      }
+
+      if (over) {
+        await applyRatings(
+          game.id,
         );
       }
 
       return {
         fen: chess.fen(),
-        status: nextStatus,
-        turn: nextTurn,
-        winner,
+        status: over
+          ? "finished"
+          : "active",
+        result,
+        white_ms: whiteMs,
+        black_ms: blackMs,
       };
     });
 
-/**
- * Claim a timeout.
- *
- * Your current database does not have clock columns,
- * so timeout handling is intentionally disabled here.
- */
+/* =========================================================
+   CLAIM TIMEOUT
+   ========================================================= */
+
 export const claimTimeout =
   createServerFn({ method: "POST" })
     .middleware([requireSupabaseAuth])
-    .validator(
-      (data: {
-        gameId: string;
-      }) => data,
-    )
-    .handler(async () => {
-      return {
-        ok: false,
-        reason:
-          "Clock support is not enabled in the current games table.",
-      };
-    });
-
-/**
- * Resign a game.
- */
-export const resignGame =
-  createServerFn({ method: "POST" })
-    .middleware([requireSupabaseAuth])
-    .validator(
+    .inputValidator(
       (data: {
         gameId: string;
       }) => data,
@@ -544,22 +864,14 @@ export const resignGame =
         userId,
       } = context;
 
-      const {
-        data: game,
-        error,
-      } = await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, status",
-        )
-        .eq("id", data.gameId)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error(
-          error.message,
-        );
-      }
+      const { data: game } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, fen, status, time_control, white_ms, black_ms, turn_started_at",
+          )
+          .eq("id", data.gameId)
+          .maybeSingle();
 
       if (!game) {
         throw new Error(
@@ -567,11 +879,127 @@ export const resignGame =
         );
       }
 
-      const myColor =
-        getPlayerColor(
-          game,
-          userId,
+      if (
+        game.status !== "active" ||
+        !game.time_control
+      ) {
+        return {
+          ok: false,
+        };
+      }
+
+      if (
+        game.white_id !== userId &&
+        game.black_id !== userId
+      ) {
+        throw new Error(
+          "You are not a player in this game.",
         );
+      }
+
+      const turn =
+        new Chess(
+          game.fen,
+        ).turn() as Color;
+
+      const remaining =
+        (
+          turn === "w"
+            ? game.white_ms
+            : game.black_ms
+        ) ??
+        game.time_control * 60000;
+
+      const elapsed =
+        game.turn_started_at
+          ? Date.now() -
+            new Date(
+              game.turn_started_at,
+            ).getTime()
+          : 0;
+
+      if (
+        remaining - elapsed >
+        0
+      ) {
+        return {
+          ok: false,
+        };
+      }
+
+      await supabase
+        .from("games")
+        .update({
+          status: "finished",
+
+          result:
+            turn === "w"
+              ? "black"
+              : "white",
+
+          white_ms:
+            turn === "w"
+              ? 0
+              : game.white_ms,
+
+          black_ms:
+            turn === "b"
+              ? 0
+              : game.black_ms,
+        })
+        .eq(
+          "id",
+          game.id,
+        );
+
+      await applyRatings(
+        game.id,
+      );
+
+      return {
+        ok: true,
+      };
+    });
+
+/* =========================================================
+   RESIGN
+   ========================================================= */
+
+export const resignGame =
+  createServerFn({ method: "POST" })
+    .middleware([requireSupabaseAuth])
+    .inputValidator(
+      (data: {
+        gameId: string;
+      }) => data,
+    )
+    .handler(async ({ data, context }) => {
+      const {
+        supabase,
+        userId,
+      } = context;
+
+      const { data: game } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, status",
+          )
+          .eq("id", data.gameId)
+          .maybeSingle();
+
+      if (!game) {
+        throw new Error(
+          "Game not found.",
+        );
+      }
+
+      const myColor: Color | null =
+        game.white_id === userId
+          ? "w"
+          : game.black_id === userId
+            ? "b"
+            : null;
 
       if (!myColor) {
         throw new Error(
@@ -580,49 +1008,45 @@ export const resignGame =
       }
 
       if (
-        game.status !== "active"
+        game.status === "finished"
       ) {
-        throw new Error(
-          "This game is not in play.",
-        );
+        return {
+          ok: true,
+        };
       }
 
-      const winner =
-        myColor === "w"
-          ? "black"
-          : "white";
-
-      const {
-        error: updateError,
-      } = await supabase
+      await supabase
         .from("games")
         .update({
           status: "finished",
-          winner,
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq("id", game.id);
 
-      if (updateError) {
-        throw new Error(
-          updateError.message,
+          result:
+            myColor === "w"
+              ? "black"
+              : "white",
+        })
+        .eq(
+          "id",
+          game.id,
         );
-      }
+
+      await applyRatings(
+        game.id,
+      );
 
       return {
         ok: true,
-        winner,
       };
     });
 
-/**
- * Agree to a draw.
- */
+/* =========================================================
+   AGREE DRAW
+   ========================================================= */
+
 export const agreeDraw =
   createServerFn({ method: "POST" })
     .middleware([requireSupabaseAuth])
-    .validator(
+    .inputValidator(
       (data: {
         gameId: string;
       }) => data,
@@ -633,22 +1057,14 @@ export const agreeDraw =
         userId,
       } = context;
 
-      const {
-        data: game,
-        error,
-      } = await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, status",
-        )
-        .eq("id", data.gameId)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error(
-          error.message,
-        );
-      }
+      const { data: game } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, status",
+          )
+          .eq("id", data.gameId)
+          .maybeSingle();
 
       if (!game) {
         throw new Error(
@@ -673,46 +1089,34 @@ export const agreeDraw =
         );
       }
 
-      const {
-        error: updateError,
-      } = await supabase
+      await supabase
         .from("games")
         .update({
           status: "finished",
-          winner: "draw",
-          updated_at:
-            new Date().toISOString(),
+          result: "draw",
         })
-        .eq("id", game.id);
-
-      if (updateError) {
-        throw new Error(
-          updateError.message,
+        .eq(
+          "id",
+          game.id,
         );
-      }
+
+      await applyRatings(
+        game.id,
+      );
 
       return {
         ok: true,
-        winner: "draw",
       };
     });
 
-/**
- * Automatically put one of the 50 bots into
- * a waiting game.
- *
- * The bot is NOT stored as a fake Supabase user.
- * Instead:
- *
- *   bot seat ID       = NULL
- *   bot seat username = bot's name
- *
- * This matches your current database structure.
- */
+/* =========================================================
+   FILL WITH BOT
+   ========================================================= */
+
 export const fillWithBot =
   createServerFn({ method: "POST" })
     .middleware([requireSupabaseAuth])
-    .validator(
+    .inputValidator(
       (data: {
         gameId: string;
       }) => data,
@@ -723,22 +1127,14 @@ export const fillWithBot =
         userId,
       } = context;
 
-      const {
-        data: game,
-        error,
-      } = await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, white_username, black_username, status, fen, turn, winner",
-        )
-        .eq("id", data.gameId)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error(
-          error.message,
-        );
-      }
+      const { data: game } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, status, time_control, bot_name",
+          )
+          .eq("id", data.gameId)
+          .maybeSingle();
 
       if (!game) {
         throw new Error(
@@ -746,10 +1142,6 @@ export const fillWithBot =
         );
       }
 
-      /*
-       * The real player must own one of the two
-       * human seats.
-       */
       if (
         game.white_id !== userId &&
         game.black_id !== userId
@@ -759,22 +1151,16 @@ export const fillWithBot =
         );
       }
 
-      /*
-       * Someone already joined.
-       */
       if (
         game.status !== "waiting"
       ) {
         return {
           filled: false,
           botName:
-            getBotName(game),
+            game.bot_name,
         };
       }
 
-      /*
-       * Never overwrite a real second player.
-       */
       if (
         game.white_id &&
         game.black_id
@@ -785,10 +1171,7 @@ export const fillWithBot =
         };
       }
 
-      /*
-       * Get the player's rating.
-       */
-      const { data: profile } =
+      const { data: me } =
         await supabase
           .from("profiles")
           .select("elo")
@@ -797,73 +1180,45 @@ export const fillWithBot =
 
       const bot =
         pickHumanBot(
-          profile?.elo ?? 1200,
+          me?.elo ?? INITIAL_RATING,
         );
 
-      /*
-       * If the creator is White,
-       * the bot becomes Black.
-       *
-       * If the creator is Black,
-       * the bot becomes White.
-       */
-      const updateData =
-        game.white_id === userId
-          ? {
-              black_id: null,
-              black_username:
-                bot.name,
-              status: "active",
-              fen:
-                game.fen === "start" ||
-                !game.fen
-                  ? START_FEN
-                  : game.fen,
-              turn:
-                game.turn || "w",
-              updated_at:
-                new Date().toISOString(),
-            }
-          : {
-              white_id: null,
-              white_username:
-                bot.name,
-              status: "active",
-              fen:
-                game.fen === "start" ||
-                !game.fen
-                  ? START_FEN
-                  : game.fen,
-              turn:
-                game.turn || "w",
-              updated_at:
-                new Date().toISOString(),
-            };
+      const clockMs =
+        game.time_control
+          ? game.time_control *
+            60000
+          : null;
 
-      const {
-        data: updated,
-        error: updateError,
-      } = await supabase
-        .from("games")
-        .update(updateData)
-        .eq("id", game.id)
-        .eq("status", "waiting")
-        .select(
-          "id, white_id, black_id, white_username, black_username, status, fen, turn",
-        )
-        .maybeSingle();
+      const { error } =
+        await supabase
+          .from("games")
+          .update({
+            status: "active",
 
-      if (updateError) {
+            bot_name: bot.name,
+            bot_elo: bot.elo,
+
+            invited_username: null,
+
+            white_ms: clockMs,
+            black_ms: clockMs,
+
+            turn_started_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "id",
+            game.id,
+          )
+          .eq(
+            "status",
+            "waiting",
+          );
+
+      if (error) {
         throw new Error(
-          `Could not start the bot game: ${updateError.message}`,
+          "Could not start the match.",
         );
-      }
-
-      if (!updated) {
-        return {
-          filled: false,
-          botName: null,
-        };
       }
 
       return {
@@ -873,16 +1228,14 @@ export const fillWithBot =
       };
     });
 
-/**
- * Make the bot's move.
- *
- * The client asks the server for the bot move by sending
- * the selected from/to squares.
- */
+/* =========================================================
+   BOT MOVE
+   ========================================================= */
+
 export const botPlayMove =
   createServerFn({ method: "POST" })
     .middleware([requireSupabaseAuth])
-    .validator(
+    .inputValidator(
       (data: {
         gameId: string;
         from: string;
@@ -895,26 +1248,24 @@ export const botPlayMove =
         userId,
       } = context;
 
-      const {
-        data: game,
-        error,
-      } = await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, white_username, black_username, status, fen, turn, winner",
-        )
-        .eq("id", data.gameId)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error(
-          error.message,
-        );
-      }
+      const { data: game } =
+        await supabase
+          .from("games")
+          .select(
+            "id, white_id, black_id, fen, status, time_control, white_ms, black_ms, turn_started_at, bot_name",
+          )
+          .eq("id", data.gameId)
+          .maybeSingle();
 
       if (!game) {
         throw new Error(
           "Game not found.",
+        );
+      }
+
+      if (!game.bot_name) {
+        throw new Error(
+          "This game has no computer opponent.",
         );
       }
 
@@ -926,11 +1277,12 @@ export const botPlayMove =
         );
       }
 
-      const myColor =
-        getPlayerColor(
-          game,
-          userId,
-        );
+      const myColor: Color | null =
+        game.white_id === userId
+          ? "w"
+          : game.black_id === userId
+            ? "b"
+            : null;
 
       if (!myColor) {
         throw new Error(
@@ -938,52 +1290,25 @@ export const botPlayMove =
         );
       }
 
-      const botColor =
+      const botColor: Color =
         myColor === "w"
           ? "b"
           : "w";
 
-      const botName =
-        getBotName(game);
-
-      if (!botName) {
+      if (
+        (
+          botColor === "w"
+            ? game.white_id
+            : game.black_id
+        ) !== null
+      ) {
         throw new Error(
-          "This game does not have a computer opponent.",
+          "That seat is taken by a player.",
         );
       }
-
-      const bot =
-        humanBotByName(botName);
-
-      if (!bot) {
-        throw new Error(
-          "The computer opponent could not be found.",
-        );
-      }
-
-      /*
-       * Make absolutely sure the bot is actually
-       * sitting in the opposite seat.
-       */
-      const oppositeId =
-        botColor === "w"
-          ? game.white_id
-          : game.black_id;
-
-      if (oppositeId !== null) {
-        throw new Error(
-          "That seat is occupied by a player.",
-        );
-      }
-
-      const fen =
-        game.fen === "start" ||
-        !game.fen
-          ? START_FEN
-          : game.fen;
 
       const chess =
-        new Chess(fen);
+        new Chess(game.fen);
 
       if (
         chess.turn() !== botColor
@@ -993,12 +1318,88 @@ export const botPlayMove =
         );
       }
 
+      let whiteMs =
+        game.white_ms;
+
+      let blackMs =
+        game.black_ms;
+
       /*
-       * The client supplies a legal move generated
-       * by the bot logic.
-       *
-       * Validate it again on the server.
+       * Bot clock.
        */
+
+      if (
+        game.time_control > 0 &&
+        game.turn_started_at
+      ) {
+        const elapsed =
+          Date.now() -
+          new Date(
+            game.turn_started_at,
+          ).getTime();
+
+        const remaining =
+          (
+            botColor === "w"
+              ? whiteMs
+              : blackMs
+          ) ??
+          game.time_control * 60000;
+
+        const left =
+          remaining - elapsed;
+
+        if (left <= 0) {
+          await supabase
+            .from("games")
+            .update({
+              status: "finished",
+
+              result:
+                botColor === "w"
+                  ? "black"
+                  : "white",
+
+              white_ms:
+                botColor === "w"
+                  ? 0
+                  : whiteMs,
+
+              black_ms:
+                botColor === "b"
+                  ? 0
+                  : blackMs,
+            })
+            .eq(
+              "id",
+              game.id,
+            );
+
+          await applyRatings(
+            game.id,
+          );
+
+          return {
+            fen: game.fen,
+            status: "finished",
+            result:
+              botColor === "w"
+                ? "black"
+                : "white",
+          };
+        }
+
+        if (botColor === "w") {
+          whiteMs = left;
+        } else {
+          blackMs = left;
+        }
+      }
+
+      /*
+       * Validate the bot move.
+       */
+
       try {
         chess.move({
           from: data.from,
@@ -1007,63 +1408,68 @@ export const botPlayMove =
         });
       } catch {
         throw new Error(
-          "Illegal bot move.",
+          "Illegal move.",
         );
       }
 
       const over =
         chess.isGameOver();
 
-      let winner:
-        | "white"
-        | "black"
-        | "draw"
+      let result:
+        | string
         | null = null;
 
       if (over) {
-        if (
-          chess.isCheckmate()
-        ) {
-          winner =
-            chess.turn() === "w"
-              ? "black"
-              : "white";
-        } else {
-          winner = "draw";
-        }
+        result = chess.isCheckmate()
+          ? chess.turn() === "w"
+            ? "black"
+            : "white"
+          : "draw";
       }
 
-      const nextStatus =
-        over
-          ? "finished"
-          : "active";
+      const { error } =
+        await supabase
+          .from("games")
+          .update({
+            fen: chess.fen(),
 
-      const {
-        error: saveError,
-      } = await supabase
-        .from("games")
-        .update({
-          fen: chess.fen(),
-          turn: chess.turn(),
-          status: nextStatus,
-          winner,
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq("id", game.id);
+            last_move:
+              `${data.from}${data.to}`,
 
-      if (saveError) {
+            status: over
+              ? "finished"
+              : "active",
+
+            result,
+
+            white_ms: whiteMs,
+            black_ms: blackMs,
+
+            turn_started_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "id",
+            game.id,
+          );
+
+      if (error) {
         throw new Error(
-          `Could not save the bot move: ${saveError.message}`,
+          "Could not save the move.",
+        );
+      }
+
+      if (over) {
+        await applyRatings(
+          game.id,
         );
       }
 
       return {
         fen: chess.fen(),
-        status: nextStatus,
-        turn: chess.turn(),
-        winner,
-        botName,
-        botElo: bot.elo,
+        status: over
+          ? "finished"
+          : "active",
+        result,
       };
     });
