@@ -1,30 +1,54 @@
+// src/lib/games.functions.ts
+
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { Chess } from "chess.js";
-import { pickHumanBot } from "@/lib/humanBots";
+import {
+  humanBotByName,
+  humanBotMove,
+  pickHumanBot,
+} from "@/lib/humanBots";
 
 type Color = "w" | "b";
 
-function ratingAfter(current: number, opponent: number, result: number, k = 24) {
-  const expected = 1 / (1 + 10 ** ((opponent - current) / 400));
-  return Math.max(100, Math.round(current + k * (result - expected)));
+function ratingAfter(
+  current: number,
+  opponent: number,
+  result: number,
+  k = 24,
+) {
+  const expected =
+    1 / (1 + 10 ** ((opponent - current) / 400));
+
+  return Math.max(
+    100,
+    Math.round(current + k * (result - expected)),
+  );
 }
 
-/** Applies online rating changes once per finished game (service role). */
+/**
+ * Applies online rating changes once per finished game.
+ */
 async function applyRatings(gameId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { supabaseAdmin } =
+    await import("@/integrations/supabase/client.server");
 
   const { data: game } = await supabaseAdmin
     .from("games")
-    .select("id, white_id, black_id, result, status, elo_applied, bot_name, bot_elo")
+    .select(
+      "id, white_id, black_id, result, status, elo_applied, bot_name, bot_elo",
+    )
     .eq("id", gameId)
     .maybeSingle();
 
-  if (!game || game.status !== "finished" || game.elo_applied) return;
+  if (!game || game.status !== "finished" || game.elo_applied) {
+    return;
+  }
 
-  // Games against a stand-in computer opponent rate the single human seat.
+  // Game against a bot.
   if (game.bot_name && (!game.white_id || !game.black_id)) {
     const humanId = game.white_id ?? game.black_id;
+
     if (!humanId) return;
 
     const humanIsWhite = !!game.white_id;
@@ -40,7 +64,8 @@ async function applyRatings(gameId: string) {
     const score =
       game.result === "draw"
         ? 0.5
-        : game.result === (humanIsWhite ? "white" : "black")
+        : game.result ===
+            (humanIsWhite ? "white" : "black")
           ? 1
           : 0;
 
@@ -70,8 +95,13 @@ async function applyRatings(gameId: string) {
     .select("id, elo")
     .in("id", [game.white_id, game.black_id]);
 
-  const white = rows?.find((r) => r.id === game.white_id);
-  const black = rows?.find((r) => r.id === game.black_id);
+  const white = rows?.find(
+    (r) => r.id === game.white_id,
+  );
+
+  const black = rows?.find(
+    (r) => r.id === game.black_id,
+  );
 
   if (!white || !black) return;
 
@@ -110,7 +140,13 @@ async function applyRatings(gameId: string) {
     .eq("id", gameId);
 }
 
-export const findOrCreateGame = createServerFn({ method: "POST" })
+/* =========================================================
+   FIND OR CREATE GAME
+========================================================= */
+
+export const findOrCreateGame = createServerFn({
+  method: "POST",
+})
   .middleware([requireSupabaseAuth])
   .inputValidator(
     (
@@ -125,9 +161,13 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
 
     const wanted =
-      (data.opponentUsername ?? "").trim().toLowerCase() || null;
+      (data.opponentUsername ?? "")
+        .trim()
+        .toLowerCase() || null;
 
-    const minutes = [0, 5, 10].includes(Number(data.minutes))
+    const minutes = [0, 5, 10].includes(
+      Number(data.minutes),
+    )
       ? Number(data.minutes)
       : 0;
 
@@ -170,7 +210,7 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
       }
     }
 
-    // 1. Join a waiting game whose free seat matches the colour I want.
+    // Join a waiting game.
     const seat =
       myColor === "w"
         ? "white_id"
@@ -190,12 +230,16 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
       .eq("time_control", minutes)
       .is(seat, null)
       .not(otherSeat, "is", null)
-      .order("created_at", { ascending: true })
+      .order("created_at", {
+        ascending: true,
+      })
       .limit(20);
 
     const candidates = (waiting ?? []).filter(
       (g) =>
-        g[otherSeat as "white_id"] !== userId &&
+        g[
+          otherSeat as "white_id" | "black_id"
+        ] !== userId &&
         (!g.invited_username ||
           (myUsername &&
             g.invited_username === myUsername)),
@@ -213,30 +257,33 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
         ? minutes * 60000
         : null;
 
-      const { data: joined, error } = await supabase
-        .from("games")
-        .update({
-          white_id:
-            myColor === "w"
-              ? userId
-              : preferred.white_id,
+      const { data: joined, error } =
+        await supabase
+          .from("games")
+          .update({
+            white_id:
+              myColor === "w"
+                ? userId
+                : preferred.white_id,
 
-          black_id:
-            myColor === "b"
-              ? userId
-              : preferred.black_id,
+            black_id:
+              myColor === "b"
+                ? userId
+                : preferred.black_id,
 
-          status: "active",
-          white_ms: clockMs,
-          black_ms: clockMs,
-          turn_started_at:
-            new Date().toISOString(),
-        })
-        .eq("id", preferred.id)
-        .eq("status", "waiting")
-        .is(seat, null)
-        .select("id")
-        .maybeSingle();
+            status: "active",
+
+            white_ms: clockMs,
+            black_ms: clockMs,
+
+            turn_started_at:
+              new Date().toISOString(),
+          })
+          .eq("id", preferred.id)
+          .eq("status", "waiting")
+          .is(seat, null)
+          .select("id")
+          .maybeSingle();
 
       if (!error && joined) {
         return {
@@ -251,31 +298,28 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
       }
     }
 
-    // 2. Otherwise open a new game on my chosen side and wait.
-    const { data: created, error: createError } =
-      await supabase
-        .from("games")
-        .insert({
-          white_id:
-            myColor === "w"
-              ? userId
-              : null,
+    // Otherwise create a new game.
+    const {
+      data: created,
+      error: createError,
+    } = await supabase
+      .from("games")
+      .insert({
+        white_id:
+          myColor === "w" ? userId : null,
 
-          black_id:
-            myColor === "b"
-              ? userId
-              : null,
+        black_id:
+          myColor === "b" ? userId : null,
 
-          invited_username: matchedName,
-          time_control: minutes,
-        })
-        .select("id")
-        .single();
+        invited_username: matchedName,
+        time_control: minutes,
+      })
+      .select("id")
+      .single();
 
     if (createError || !created) {
       throw new Error(
-        createError?.message ??
-          "Could not create a game.",
+        "Could not create a game.",
       );
     }
 
@@ -284,15 +328,23 @@ export const findOrCreateGame = createServerFn({ method: "POST" })
       mode: matchedName
         ? ("invited" as const)
         : ("open" as const),
+
       opponent: matchedName,
       color: myColor,
+
       unknownUsername:
         wanted !== null &&
         matchedName === null,
     };
   });
 
-export const makeMove = createServerFn({ method: "POST" })
+/* =========================================================
+   HUMAN MOVE
+========================================================= */
+
+export const makeMove = createServerFn({
+  method: "POST",
+})
   .middleware([requireSupabaseAuth])
   .inputValidator(
     (data: {
@@ -304,25 +356,13 @@ export const makeMove = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 
-    const { data: game, error: gameLoadError } =
-      await supabase
-        .from("games")
-        .select(
-          "id, white_id, black_id, fen, status, time_control, white_ms, black_ms, turn_started_at",
-        )
-        .eq("id", data.gameId)
-        .maybeSingle();
-
-    if (gameLoadError) {
-      console.error(
-        "LOAD GAME ERROR:",
-        gameLoadError,
-      );
-
-      throw new Error(
-        `Could not load game: ${gameLoadError.message}`,
-      );
-    }
+    const { data: game } = await supabase
+      .from("games")
+      .select(
+        "id, white_id, black_id, fen, status, time_control, white_ms, black_ms, turn_started_at",
+      )
+      .eq("id", data.gameId)
+      .maybeSingle();
 
     if (!game) {
       throw new Error("Game not found.");
@@ -355,10 +395,10 @@ export const makeMove = createServerFn({ method: "POST" })
       );
     }
 
-    // Charge the clock before accepting the move.
     let whiteMs = game.white_ms;
     let blackMs = game.black_ms;
 
+    // Clock handling.
     if (
       game.time_control > 0 &&
       game.turn_started_at
@@ -378,34 +418,27 @@ export const makeMove = createServerFn({ method: "POST" })
       const left = remaining - elapsed;
 
       if (left <= 0) {
-        const { error: timeoutError } =
-          await supabase
-            .from("games")
-            .update({
-              status: "finished",
-              result:
-                myColor === "w"
-                  ? "black"
-                  : "white",
+        await supabase
+          .from("games")
+          .update({
+            status: "finished",
 
-              white_ms:
-                myColor === "w"
-                  ? 0
-                  : whiteMs,
+            result:
+              myColor === "w"
+                ? "black"
+                : "white",
 
-              black_ms:
-                myColor === "b"
-                  ? 0
-                  : blackMs,
-            })
-            .eq("id", game.id);
+            white_ms:
+              myColor === "w"
+                ? 0
+                : whiteMs,
 
-        if (timeoutError) {
-          console.error(
-            "TIMEOUT SAVE ERROR:",
-            timeoutError,
-          );
-        }
+            black_ms:
+              myColor === "b"
+                ? 0
+                : blackMs,
+          })
+          .eq("id", game.id);
 
         await applyRatings(game.id);
 
@@ -428,7 +461,9 @@ export const makeMove = createServerFn({ method: "POST" })
         promotion: "q",
       });
     } catch {
-      throw new Error("Illegal move.");
+      throw new Error(
+        "Illegal move.",
+      );
     }
 
     const over = chess.isGameOver();
@@ -450,29 +485,27 @@ export const makeMove = createServerFn({ method: "POST" })
       .from("games")
       .update({
         fen: chess.fen(),
-        last_move: `${data.from}${data.to}`,
+
+        last_move:
+          `${data.from}${data.to}`,
+
         status: over
           ? "finished"
           : "active",
+
         result,
+
         white_ms: whiteMs,
         black_ms: blackMs,
+
         turn_started_at:
           new Date().toISOString(),
       })
       .eq("id", game.id);
 
-    // IMPORTANT:
-    // Show the REAL Supabase error instead of
-    // hiding it behind "Could not save your move."
     if (error) {
-      console.error(
-        "SAVE MOVE ERROR:",
-        error,
-      );
-
       throw new Error(
-        `Could not save your move: ${error.message}`,
+        "Could not save your move.",
       );
     }
 
@@ -491,7 +524,10 @@ export const makeMove = createServerFn({ method: "POST" })
     };
   });
 
-/** Ends a game when the side to move has run out of time. */
+/* =========================================================
+   CLAIM TIMEOUT
+========================================================= */
+
 export const claimTimeout = createServerFn({
   method: "POST",
 })
@@ -551,10 +587,11 @@ export const claimTimeout = createServerFn({
       return { ok: false };
     }
 
-    const { error } = await supabase
+    await supabase
       .from("games")
       .update({
         status: "finished",
+
         result:
           turn === "w"
             ? "black"
@@ -572,21 +609,14 @@ export const claimTimeout = createServerFn({
       })
       .eq("id", game.id);
 
-    if (error) {
-      console.error(
-        "CLAIM TIMEOUT ERROR:",
-        error,
-      );
-
-      throw new Error(
-        `Could not claim timeout: ${error.message}`,
-      );
-    }
-
     await applyRatings(game.id);
 
     return { ok: true };
   });
+
+/* =========================================================
+   RESIGN
+========================================================= */
 
 export const resignGame = createServerFn({
   method: "POST",
@@ -623,10 +653,11 @@ export const resignGame = createServerFn({
       );
     }
 
-    const { error } = await supabase
+    await supabase
       .from("games")
       .update({
         status: "finished",
+
         result:
           myColor === "w"
             ? "black"
@@ -634,21 +665,14 @@ export const resignGame = createServerFn({
       })
       .eq("id", game.id);
 
-    if (error) {
-      console.error(
-        "RESIGN ERROR:",
-        error,
-      );
-
-      throw new Error(
-        `Could not resign: ${error.message}`,
-      );
-    }
-
     await applyRatings(game.id);
 
     return { ok: true };
   });
+
+/* =========================================================
+   AGREE DRAW
+========================================================= */
 
 export const agreeDraw = createServerFn({
   method: "POST",
@@ -687,7 +711,7 @@ export const agreeDraw = createServerFn({
       );
     }
 
-    const { error } = await supabase
+    await supabase
       .from("games")
       .update({
         status: "finished",
@@ -695,23 +719,15 @@ export const agreeDraw = createServerFn({
       })
       .eq("id", game.id);
 
-    if (error) {
-      console.error(
-        "DRAW ERROR:",
-        error,
-      );
-
-      throw new Error(
-        `Could not agree to draw: ${error.message}`,
-      );
-    }
-
     await applyRatings(game.id);
 
     return { ok: true };
   });
 
-/** Seats a human-like computer opponent when the lobby is empty. */
+/* =========================================================
+   FILL GAME WITH BOT
+========================================================= */
+
 export const fillWithBot = createServerFn({
   method: "POST",
 })
@@ -770,19 +786,24 @@ export const fillWithBot = createServerFn({
       me?.elo ?? 1000,
     );
 
-    const clockMs = game.time_control
-      ? game.time_control * 60000
-      : null;
+    const clockMs =
+      game.time_control
+        ? game.time_control * 60000
+        : null;
 
     const { error } = await supabase
       .from("games")
       .update({
         status: "active",
+
         bot_name: bot.name,
         bot_elo: bot.elo,
+
         invited_username: null,
+
         white_ms: clockMs,
         black_ms: clockMs,
+
         turn_started_at:
           new Date().toISOString(),
       })
@@ -790,13 +811,8 @@ export const fillWithBot = createServerFn({
       .eq("status", "waiting");
 
     if (error) {
-      console.error(
-        "START BOT ERROR:",
-        error,
-      );
-
       throw new Error(
-        `Could not start the match: ${error.message}`,
+        "Could not start the match.",
       );
     }
 
@@ -807,7 +823,10 @@ export const fillWithBot = createServerFn({
     };
   });
 
-/** Applies the computer opponent's move, requested by the human's client. */
+/* =========================================================
+   BOT MOVE
+========================================================= */
+
 export const botPlayMove = createServerFn({
   method: "POST",
 })
@@ -815,8 +834,6 @@ export const botPlayMove = createServerFn({
   .inputValidator(
     (data: {
       gameId: string;
-      from: string;
-      to: string;
     }) => data,
   )
   .handler(async ({ data, context }) => {
@@ -862,6 +879,10 @@ export const botPlayMove = createServerFn({
     const botColor: Color =
       myColor === "w" ? "b" : "w";
 
+    /*
+     * The bot seat must be empty because the bot
+     * is represented by bot_name rather than a user ID.
+     */
     if (
       (botColor === "w"
         ? game.white_id
@@ -880,9 +901,36 @@ export const botPlayMove = createServerFn({
       );
     }
 
+    const bot = humanBotByName(
+      game.bot_name,
+    );
+
+    if (!bot) {
+      throw new Error(
+        "Computer opponent not found.",
+      );
+    }
+
+    /*
+     * IMPORTANT:
+     * The server chooses the bot move.
+     * The browser does NOT send from/to anymore.
+     */
+    const botMove = humanBotMove(
+      game.fen,
+      bot,
+    );
+
+    if (!botMove) {
+      throw new Error(
+        "The computer has no legal move.",
+      );
+    }
+
     let whiteMs = game.white_ms;
     let blackMs = game.black_ms;
 
+    // Charge bot clock.
     if (
       game.time_control > 0 &&
       game.turn_started_at
@@ -899,37 +947,31 @@ export const botPlayMove = createServerFn({
           : blackMs) ??
         game.time_control * 60000;
 
-      const left = remaining - elapsed;
+      const left =
+        remaining - elapsed;
 
       if (left <= 0) {
-        const { error: timeoutError } =
-          await supabase
-            .from("games")
-            .update({
-              status: "finished",
-              result:
-                botColor === "w"
-                  ? "black"
-                  : "white",
+        await supabase
+          .from("games")
+          .update({
+            status: "finished",
 
-              white_ms:
-                botColor === "w"
-                  ? 0
-                  : whiteMs,
+            result:
+              botColor === "w"
+                ? "black"
+                : "white",
 
-              black_ms:
-                botColor === "b"
-                  ? 0
-                  : blackMs,
-            })
-            .eq("id", game.id);
+            white_ms:
+              botColor === "w"
+                ? 0
+                : whiteMs,
 
-        if (timeoutError) {
-          console.error(
-            "BOT TIMEOUT ERROR:",
-            timeoutError,
-          );
-        }
+            black_ms:
+              botColor === "b"
+                ? 0
+                : blackMs,
+          })
+          .eq("id", game.id);
 
         await applyRatings(game.id);
 
@@ -940,6 +982,7 @@ export const botPlayMove = createServerFn({
             botColor === "w"
               ? "black"
               : "white",
+          last_move: null,
         };
       }
 
@@ -952,15 +995,19 @@ export const botPlayMove = createServerFn({
 
     try {
       chess.move({
-        from: data.from,
-        to: data.to,
-        promotion: "q",
+        from: botMove.from,
+        to: botMove.to,
+        promotion:
+          botMove.promotion ?? "q",
       });
     } catch {
-      throw new Error("Illegal move.");
+      throw new Error(
+        "Computer generated an illegal move.",
+      );
     }
 
-    const over = chess.isGameOver();
+    const over =
+      chess.isGameOver();
 
     let result: string | null = null;
 
@@ -972,30 +1019,33 @@ export const botPlayMove = createServerFn({
         : "draw";
     }
 
+    const lastMove =
+      `${botMove.from}${botMove.to}`;
+
     const { error } = await supabase
       .from("games")
       .update({
         fen: chess.fen(),
-        last_move: `${data.from}${data.to}`,
+
+        last_move: lastMove,
+
         status: over
           ? "finished"
           : "active",
+
         result,
+
         white_ms: whiteMs,
         black_ms: blackMs,
+
         turn_started_at:
           new Date().toISOString(),
       })
       .eq("id", game.id);
 
     if (error) {
-      console.error(
-        "BOT SAVE MOVE ERROR:",
-        error,
-      );
-
       throw new Error(
-        `Could not save the move: ${error.message}`,
+        "Could not save computer move.",
       );
     }
 
@@ -1005,9 +1055,16 @@ export const botPlayMove = createServerFn({
 
     return {
       fen: chess.fen(),
+
       status: over
         ? "finished"
         : "active",
+
       result,
+
+      white_ms: whiteMs,
+      black_ms: blackMs,
+
+      last_move: lastMove,
     };
   });

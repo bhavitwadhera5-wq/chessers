@@ -1,9 +1,27 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createFileRoute,
+  Link,
+  useNavigate,
+} from "@tanstack/react-router";
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import { useServerFn } from "@tanstack/react-start";
-import { Chess, type Move, type Square } from "chess.js";
+
+import {
+  Chess,
+  type Move,
+  type Square,
+} from "chess.js";
+
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+
 import {
   agreeDraw,
   botPlayMove,
@@ -12,24 +30,30 @@ import {
   makeMove,
   resignGame,
 } from "@/lib/games.functions";
+
 import {
   humanBotByName,
-  humanBotMove,
   humanThinkDelay,
 } from "@/lib/humanBots";
+
 import { BoardView } from "@/components/BoardView";
 import { GameOverDialog } from "@/components/GameOverDialog";
 import { MoveList } from "@/components/MoveList";
 import { ReportPanel } from "@/components/ReportPanel";
+
 import { submitFairPlay } from "@/lib/moderation.functions";
 import { playMoveSound } from "@/lib/sounds";
+
 import {
   BOARD_THEMES,
   THEME_KEY,
   type BoardTheme,
 } from "@/lib/boardThemes";
 
-export const Route = createFileRoute("/play/$gameId")({
+
+export const Route = createFileRoute(
+  "/play/$gameId",
+)({
   head: () => ({
     meta: [
       {
@@ -59,80 +83,149 @@ export const Route = createFileRoute("/play/$gameId")({
       },
     ],
   }),
+
   component: PlayOnline,
 });
 
+
 type GameRow = {
   id: string;
+
   white_id: string | null;
   black_id: string | null;
+
   invited_username: string | null;
+
   fen: string;
+
   status: string;
+
   result: string | null;
+
   last_move: string | null;
+
   time_control: number;
+
   white_ms: number | null;
   black_ms: number | null;
+
   turn_started_at: string | null;
+
   bot_name: string | null;
   bot_elo: number | null;
 };
 
-function fmtClock(ms: number) {
-  const s = Math.max(0, Math.ceil(ms / 1000));
 
-  return `${Math.floor(s / 60)}:${String(
-    s % 60,
+function fmtClock(ms: number) {
+  const seconds = Math.max(
+    0,
+    Math.ceil(ms / 1000),
+  );
+
+  return `${Math.floor(seconds / 60)}:${String(
+    seconds % 60,
   ).padStart(2, "0")}`;
 }
 
+
 function PlayOnline() {
-  const { gameId } = Route.useParams();
-  const { user, username, loading } = useAuth();
-  const navigate = useNavigate();
+  const { gameId } =
+    Route.useParams();
 
-  const move = useServerFn(makeMove);
-  const resign = useServerFn(resignGame);
-  const draw = useServerFn(agreeDraw);
-  const timeout = useServerFn(claimTimeout);
-  const seatBot = useServerFn(fillWithBot);
-  const sendBotMove = useServerFn(botPlayMove);
+  const {
+    user,
+    username,
+    loading,
+  } = useAuth();
 
-  const [game, setGame] =
-    useState<GameRow | null>(null);
+  const navigate =
+    useNavigate();
 
-  const [opponentName, setOpponentName] =
-    useState<string | null>(null);
 
-  const [selected, setSelected] =
-    useState<Square | null>(null);
+  /*
+   * Server functions
+   */
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const move =
+    useServerFn(makeMove);
 
-  const [theme, setTheme] =
-    useState<BoardTheme>("green");
+  const resign =
+    useServerFn(resignGame);
 
-  const [drawOffered, setDrawOffered] =
-    useState(false);
+  const draw =
+    useServerFn(agreeDraw);
 
-  const [incomingDraw, setIncomingDraw] =
-    useState(false);
+  const timeout =
+    useServerFn(claimTimeout);
 
-  const [showResult, setShowResult] =
-    useState(true);
+  const seatBot =
+    useServerFn(fillWithBot);
+
+  const sendBotMove =
+    useServerFn(botPlayMove);
 
   const sendFairPlay =
     useServerFn(submitFairPlay);
 
-  const [now, setNow] =
-    useState(() => Date.now());
+
+  /*
+   * Game state
+   */
+
+  const [game, setGame] =
+    useState<GameRow | null>(null);
+
+  const [
+    opponentName,
+    setOpponentName,
+  ] = useState<string | null>(null);
+
+  const [
+    selected,
+    setSelected,
+  ] = useState<Square | null>(null);
+
+  const [
+    error,
+    setError,
+  ] = useState<string | null>(null);
+
+  const [
+    theme,
+    setTheme,
+  ] = useState<BoardTheme>("green");
+
+  const [
+    drawOffered,
+    setDrawOffered,
+  ] = useState(false);
+
+  const [
+    incomingDraw,
+    setIncomingDraw,
+  ] = useState(false);
+
+  const [
+    showResult,
+    setShowResult,
+  ] = useState(true);
+
+  const [
+    now,
+    setNow,
+  ] = useState(() => Date.now());
+
+
+  /*
+   * Refs
+   */
 
   const channelRef =
-    useRef<ReturnType<typeof supabase.channel> | null>(
-      null,
-    );
+    useRef<
+      ReturnType<
+        typeof supabase.channel
+      > | null
+    >(null);
 
   const claimedRef =
     useRef(false);
@@ -144,18 +237,22 @@ function PlayOnline() {
     useRef(false);
 
   /*
-   * Stores the FEN currently being calculated by the bot.
+   * VERY IMPORTANT:
    *
-   * This prevents duplicate bot moves when the realtime
-   * channel and the polling request update the game at
-   * nearly the same time.
+   * Stores the FEN currently being
+   * processed by the bot.
+   *
+   * This prevents multiple bot requests
+   * for the exact same board position.
    */
   const botThinkingRef =
     useRef<string | null>(null);
 
+
   /*
-   * Load saved board theme.
+   * Load board theme
    */
+
   useEffect(() => {
     const saved =
       window.localStorage.getItem(
@@ -165,19 +262,27 @@ function PlayOnline() {
     if (
       saved &&
       BOARD_THEMES.some(
-        (t) => t.id === saved,
+        (theme) =>
+          theme.id === saved,
       )
     ) {
       setTheme(saved);
     }
   }, []);
 
+
   /*
-   * Require login.
+   * Require login
    */
+
   useEffect(() => {
-    if (!loading && !user) {
-      navigate({ to: "/" });
+    if (
+      !loading &&
+      !user
+    ) {
+      navigate({
+        to: "/",
+      });
     }
   }, [
     loading,
@@ -185,24 +290,23 @@ function PlayOnline() {
     navigate,
   ]);
 
+
   /*
-   * Load the game and keep it synchronized.
-   *
-   * Realtime is used when available.
-   * Polling every 2 seconds is also kept as a
-   * fallback so multiplayer still works if the
-   * realtime websocket has trouble.
+   * Load game + realtime updates
    */
+
   useEffect(() => {
     let active = true;
 
     const load = async () => {
-      const { data, error: loadError } =
-        await supabase
-          .from("games")
-          .select("*")
-          .eq("id", gameId)
-          .maybeSingle();
+      const {
+        data,
+        error: loadError,
+      } = await supabase
+        .from("games")
+        .select("*")
+        .eq("id", gameId)
+        .maybeSingle();
 
       if (loadError) {
         console.error(
@@ -219,123 +323,161 @@ function PlayOnline() {
         return;
       }
 
-      if (active && data) {
-        setGame(data as GameRow);
+      if (
+        active &&
+        data
+      ) {
+        setGame(
+          data as GameRow,
+        );
       }
     };
 
+
     void load();
 
-    const channel = supabase
-      .channel(`game-${gameId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "games",
-          filter: `id=eq.${gameId}`,
-        },
-        (payload) => {
-          if (active) {
-            setGame(
-              payload.new as GameRow,
-            );
-          }
-        },
-      )
-      .on(
-        "broadcast",
-        {
-          event: "draw-offer",
-        },
-        ({ payload }) => {
-          if (
-            payload?.from !== user?.id
-          ) {
-            setIncomingDraw(true);
-          }
-        },
-      )
-      .on(
-        "broadcast",
-        {
-          event: "draw-decline",
-        },
-        ({ payload }) => {
-          if (
-            payload?.from !== user?.id
-          ) {
-            setDrawOffered(false);
-          }
-        },
-      )
-      .subscribe();
 
-    channelRef.current = channel;
+    const channel =
+      supabase
+        .channel(
+          `game-${gameId}`,
+        )
 
-    const poll = window.setInterval(
-      () => {
-        void load();
-      },
-      2000,
-    );
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "games",
+            filter: `id=eq.${gameId}`,
+          },
+          (payload) => {
+            if (active) {
+              setGame(
+                payload.new as GameRow,
+              );
+            }
+          },
+        )
+
+        .on(
+          "broadcast",
+          {
+            event: "draw-offer",
+          },
+          ({ payload }) => {
+            if (
+              payload?.from !==
+              user?.id
+            ) {
+              setIncomingDraw(true);
+            }
+          },
+        )
+
+        .on(
+          "broadcast",
+          {
+            event: "draw-decline",
+          },
+          ({ payload }) => {
+            if (
+              payload?.from !==
+              user?.id
+            ) {
+              setDrawOffered(false);
+            }
+          },
+        )
+
+        .subscribe();
+
+
+    channelRef.current =
+      channel;
+
+
+    /*
+     * Polling fallback.
+     *
+     * This is especially useful if
+     * realtime does not update correctly.
+     */
+    const poll =
+      setInterval(
+        load,
+        2000,
+      );
+
 
     return () => {
       active = false;
 
-      window.clearInterval(poll);
+      clearInterval(poll);
 
-      void supabase.removeChannel(
+      supabase.removeChannel(
         channel,
       );
 
-      channelRef.current = null;
+      channelRef.current =
+        null;
     };
   }, [
     gameId,
     user?.id,
   ]);
 
+
   /*
-   * Determine our colour.
+   * Determine player's colour
    */
+
   const myColor =
     !game || !user
       ? null
-      : game.white_id === user.id
+      : game.white_id ===
+          user.id
         ? "w"
-        : game.black_id === user.id
+        : game.black_id ===
+            user.id
           ? "b"
           : null;
 
+
   /*
-   * Find the opponent username.
+   * Find opponent username
    */
+
   useEffect(() => {
     const otherId =
       myColor === "w"
         ? game?.black_id
         : game?.white_id;
 
+
     if (!otherId) {
       setOpponentName(
-        game?.bot_name ?? null,
+        game?.bot_name ??
+          null,
       );
 
       return;
     }
 
-    void supabase
+
+    supabase
       .from("profiles")
       .select("username")
       .eq("id", otherId)
       .maybeSingle()
-      .then(({ data }) => {
-        setOpponentName(
-          data?.username ?? null,
-        );
-      });
+      .then(
+        ({ data }) => {
+          setOpponentName(
+            data?.username ??
+              null,
+          );
+        },
+      );
   }, [
     game?.black_id,
     game?.white_id,
@@ -343,224 +485,167 @@ function PlayOnline() {
     myColor,
   ]);
 
-  /*
-   * Build chess.js position from the
-   * current server FEN.
-   */
-  const chess = useMemo(
-    () =>
-      game
-        ? new Chess(game.fen)
-        : null,
-    [game?.fen],
-  );
-
-  const board = useMemo(
-    () => chess?.board() ?? [],
-    [chess],
-  );
 
   /*
-   * Is it our turn?
+   * Chess instance
    */
+
+  const chess =
+    useMemo(
+      () =>
+        game
+          ? new Chess(game.fen)
+          : null,
+      [game?.fen],
+    );
+
+
+  const board =
+    useMemo(
+      () =>
+        chess?.board() ??
+        [],
+      [chess],
+    );
+
+
+  /*
+   * Is it my turn?
+   */
+
   const myTurn =
     !!chess &&
     !!myColor &&
-    chess.turn() === myColor &&
-    game?.status === "active";
+    chess.turn() ===
+      myColor &&
+    game?.status ===
+      "active";
+
 
   /*
-   * ============================================================
-   * BOT FALLBACK
-   * ============================================================
+   * BOT MATCH SETUP
    *
-   * Wait 30 seconds for a human.
-   *
-   * If nobody joins, ask the server to seat a bot.
-   *
-   * Retry every 3 seconds if the request fails.
+   * If the player is alone,
+   * automatically seat a bot after 12 seconds.
    */
+
   const waitingAlone =
-    game?.status === "waiting" &&
+    game?.status ===
+      "waiting" &&
     !!myColor &&
     !game.invited_username &&
-    (myColor === "w"
-      ? !game.black_id
-      : !game.white_id);
+    (
+      myColor === "w"
+        ? !game.black_id
+        : !game.white_id
+    );
+
 
   useEffect(() => {
-    if (!waitingAlone) {
-      fillingRef.current = false;
+    if (
+      !waitingAlone ||
+      fillingRef.current
+    ) {
       return;
     }
 
-    if (fillingRef.current) {
-      return;
-    }
 
-    const startedAt =
-      Date.now();
-
-    const tryFillBot =
-      async () => {
-        if (
-          !waitingAlone ||
-          fillingRef.current
-        ) {
-          return;
-        }
-
-        const elapsed =
-          Date.now() -
-          startedAt;
-
-        if (elapsed < 30000) {
-          return;
-        }
-
-        fillingRef.current = true;
-
-        try {
-          const result =
-            await seatBot({
-              data: {
-                gameId,
-              },
-            });
-
-          if (result) {
-            /*
-             * The server response may only contain
-             * bot-related fields, so merge it with
-             * the existing game rather than replacing
-             * the complete game object.
-             */
-            setGame(
-              (current) =>
-                current
-                  ? {
-                      ...current,
-                      ...result,
-                    }
-                  : current,
-            );
-          }
-
-          setError(null);
-        } catch (e) {
-          console.error(
-            "[BOT] Could not start bot:",
-            e,
-          );
-
-          setError(
-            e instanceof Error
-              ? e.message.replace(
-                  /^Error:\s*/,
-                  "",
-                )
-              : "Could not start the bot.",
-          );
-        } finally {
-          fillingRef.current = false;
-        }
-      };
-
-    const firstTimer =
+    const id =
       window.setTimeout(
         () => {
-          void tryFillBot();
+          fillingRef.current =
+            true;
+
+          seatBot({
+            data: {
+              gameId,
+            },
+          })
+            .catch(
+              (error) => {
+                console.error(
+                  "[BOT] Could not seat bot:",
+                  error,
+                );
+              },
+            )
+            .finally(
+              () => {
+                fillingRef.current =
+                  false;
+              },
+            );
         },
-        30000,
+
+        12000,
       );
 
-    const retryTimer =
-      window.setInterval(
-        () => {
-          void tryFillBot();
-        },
-        3000,
-      );
 
-    return () => {
+    return () =>
       window.clearTimeout(
-        firstTimer,
+        id,
       );
-
-      window.clearInterval(
-        retryTimer,
-      );
-    };
   }, [
     waitingAlone,
     seatBot,
     gameId,
   ]);
 
+
   /*
-   * ============================================================
-   * COMPUTER OPPONENT
-   * ============================================================
+   * BOT SEAT
    *
-   * IMPORTANT:
-   *
-   * We do NOT require the bot's database seat to be empty.
-   *
-   * The database represents the bot using bot_name while
-   * the player's colour is stored in white_id/black_id.
-   *
-   * Therefore the only things that matter are:
-   *
-   *   1. There is a bot.
-   *   2. The game is active.
-   *   3. It is the bot's turn.
-   *
-   * The bot move is calculated locally and then sent to
-   * botPlayMove() so the server validates and saves it.
+   * If bot_name exists and the opposite
+   * player seat is empty, the opponent is a bot.
    */
+
+  const botSeatEmpty =
+    !!game?.bot_name &&
+    !!myColor &&
+    (
+      myColor === "w"
+        ? !game.black_id
+        : !game.white_id
+    );
+
+
+  /*
+   * ========================================
+   * BOT MOVE LOOP
+   * ========================================
+   *
+   * This is the most important section.
+   *
+   * When:
+   *
+   * 1. A bot exists
+   * 2. Game is active
+   * 3. It isn't our turn
+   * 4. Bot's seat is empty
+   *
+   * the browser asks the server to make
+   * the bot's move.
+   */
+
   useEffect(() => {
     if (
-      !game ||
+      !botSeatEmpty ||
       !chess ||
+      !game ||
       game.status !== "active" ||
-      !game.bot_name ||
-      !myColor
+      myTurn
     ) {
       return;
     }
 
-    /*
-     * The bot is always the opposite colour
-     * from the human player.
-     */
-    const botColor =
-      myColor === "w"
-        ? "b"
-        : "w";
 
-    /*
-     * If it is our turn, wait.
-     */
-    if (
-      chess.turn() !== botColor
-    ) {
-      return;
-    }
-
-    /*
-     * Find the bot definition.
-     */
     const bot =
       humanBotByName(
-        game.bot_name,
+        game.bot_name!,
       );
+
 
     if (!bot) {
-      console.error(
-        "[BOT] Bot not found:",
-        game.bot_name,
-      );
-
       setError(
         `Bot "${game.bot_name}" could not be loaded.`,
       );
@@ -568,14 +653,17 @@ function PlayOnline() {
       return;
     }
 
-    /*
-     * Current position.
-     */
-    const fen = game.fen;
 
     /*
-     * Prevent duplicate calculations for the
-     * same position.
+     * Capture the exact board position.
+     */
+    const fen =
+      game.fen;
+
+
+    /*
+     * Don't start another calculation
+     * for the same FEN.
      */
     if (
       botThinkingRef.current ===
@@ -584,216 +672,223 @@ function PlayOnline() {
       return;
     }
 
-    botThinkingRef.current = fen;
+
+    /*
+     * Mark this position as being processed.
+     */
+    botThinkingRef.current =
+      fen;
+
+
+    /*
+     * Human-like thinking delay.
+     */
+    const delay =
+      humanThinkDelay(bot);
+
 
     console.log(
       "[BOT] Thinking...",
       {
-        bot: game.bot_name,
-        color: botColor,
+        bot: bot.name,
         fen,
+        delay,
       },
     );
 
-    /*
-     * Give the bot its human-like thinking delay.
-     */
-    const timer =
+
+    const id =
       window.setTimeout(
-        () => {
+        async () => {
           try {
-            /*
-             * Calculate a legal move.
-             */
-            const choice =
-              humanBotMove(
-                fen,
-                bot,
-              );
+            console.log(
+              "[BOT] Requesting server move...",
+            );
 
-            if (!choice) {
-              console.error(
-                "[BOT] No legal move found.",
-              );
 
-              botThinkingRef.current =
-                null;
+            const res =
+              await sendBotMove({
+                data: {
+                  gameId,
+                },
+              });
 
-              return;
-            }
 
             console.log(
-              "[BOT] Playing:",
-              choice.from,
-              "->",
-              choice.to,
+              "[BOT] Server returned:",
+              res,
             );
+
 
             /*
-             * Send the move to the server.
+             * Allow the next FEN to trigger
+             * another bot move.
              */
-            sendBotMove({
-              data: {
-                gameId,
-                from: choice.from,
-                to: choice.to,
-              },
-            })
-              .then((res) => {
-                console.log(
-                  "[BOT] Move saved:",
-                  choice.from,
-                  "->",
-                  choice.to,
-                );
+            botThinkingRef.current =
+              null;
 
-                /*
-                 * Allow the next FEN to be
-                 * processed.
-                 */
-                botThinkingRef.current =
-                  null;
 
-                /*
-                 * Update immediately.
-                 *
-                 * Realtime/polling will also
-                 * update this state.
-                 */
-                setGame(
-                  (current) =>
-                    current
-                      ? {
-                          ...current,
-                          fen: res.fen,
-                          status:
-                            res.status,
-                          result:
-                            res.result,
-                          last_move:
-                            `${choice.from}${choice.to}`,
-                        }
-                      : current,
-                );
+            /*
+             * Update local state immediately.
+             */
+            setGame(
+              (current) =>
+                current
+                  ? {
+                      ...current,
 
-                setError(null);
-              })
-              .catch((e) => {
-                console.error(
-                  "[BOT] Server move failed:",
-                  e,
-                );
+                      fen:
+                        res.fen,
 
-                botThinkingRef.current =
-                  null;
+                      status:
+                        res.status,
 
-                setError(
-                  e instanceof Error
-                    ? e.message.replace(
-                        /^Error:\s*/,
-                        "",
-                      )
-                    : "Bot move failed.",
-                );
-              });
+                      result:
+                        res.result,
+
+                      last_move:
+                        res.last_move ??
+                        current.last_move,
+
+                      white_ms:
+                        res.white_ms ??
+                        current.white_ms,
+
+                      black_ms:
+                        res.black_ms ??
+                        current.black_ms,
+
+                      turn_started_at:
+                        new Date().toISOString(),
+                    }
+                  : current,
+            );
+
+
+            setError(null);
           } catch (e) {
             console.error(
-              "[BOT] Move calculation failed:",
+              "[BOT] Server move failed:",
               e,
             );
+
 
             botThinkingRef.current =
               null;
 
+
             setError(
               e instanceof Error
-                ? e.message
-                : "Bot could not calculate a move.",
+                ? e.message.replace(
+                    /^Error:\s*/,
+                    "",
+                  )
+                : "Bot move failed.",
             );
           }
         },
-        humanThinkDelay(bot),
+
+        delay,
       );
+
 
     return () => {
       window.clearTimeout(
-        timer,
+        id,
       );
     };
   }, [
-    game,
-    chess,
-    myColor,
+    botSeatEmpty,
+    game?.fen,
+    game?.status,
+    game?.bot_name,
+    myTurn,
     gameId,
     sendBotMove,
   ]);
 
+
   /*
-   * ============================================================
    * CLOCKS
-   * ============================================================
    */
+
   const clockOn =
     !!game?.time_control &&
-    game.status === "active";
+    game.status ===
+      "active";
+
 
   useEffect(() => {
     if (!clockOn) {
       return;
     }
 
+
     const id =
       window.setInterval(
-        () => {
+        () =>
           setNow(
             Date.now(),
-          );
-        },
+          ),
         250,
       );
+
 
     return () =>
       window.clearInterval(
         id,
       );
-  }, [clockOn]);
+  }, [
+    clockOn,
+  ]);
 
-  const remaining =
-    (side: "w" | "b") => {
-      if (!game?.time_control) {
-        return null;
-      }
 
-      const base =
-        (side === "w"
+  const remaining = (
+    side: "w" | "b",
+  ) => {
+    if (
+      !game?.time_control
+    ) {
+      return null;
+    }
+
+
+    const base =
+      (
+        side === "w"
           ? game.white_ms
-          : game.black_ms) ??
-        game.time_control *
-          60000;
+          : game.black_ms
+      ) ??
+      game.time_control *
+        60000;
 
-      if (
-        game.status !==
-          "active" ||
-        !chess ||
-        chess.turn() !==
-          side ||
-        !game.turn_started_at
-      ) {
-        return Math.max(
-          0,
-          base,
-        );
-      }
 
+    if (
+      game.status !==
+        "active" ||
+      !chess ||
+      chess.turn() !== side ||
+      !game.turn_started_at
+    ) {
       return Math.max(
         0,
-        base -
-          (now -
-            new Date(
-              game.turn_started_at,
-            ).getTime()),
+        base,
       );
-    };
+    }
+
+
+    return Math.max(
+      0,
+      base -
+        (
+          now -
+          new Date(
+            game.turn_started_at,
+          ).getTime()
+        ),
+    );
+  };
+
 
   const turnClock =
     chess
@@ -804,9 +899,7 @@ function PlayOnline() {
         )
       : null;
 
-  /*
-   * Claim timeout when clock reaches zero.
-   */
+
   useEffect(() => {
     if (
       !clockOn ||
@@ -817,14 +910,18 @@ function PlayOnline() {
       return;
     }
 
-    claimedRef.current = true;
+
+    claimedRef.current =
+      true;
+
 
     timeout({
       data: {
         gameId,
       },
     }).catch(() => {
-      claimedRef.current = false;
+      claimedRef.current =
+        false;
     });
   }, [
     clockOn,
@@ -833,38 +930,50 @@ function PlayOnline() {
     gameId,
   ]);
 
+
   /*
-   * ============================================================
    * MOVE HISTORY
-   * ============================================================
    */
-  const [moveLog, setMoveLog] =
-    useState<string[]>([]);
+
+  const [
+    moveLog,
+    setMoveLog,
+  ] = useState<string[]>(
+    [],
+  );
+
 
   useEffect(() => {
     const lm =
       game?.last_move;
 
+
     if (!lm) {
       return;
     }
 
+
     setMoveLog(
       (log) => {
         if (
-          log[log.length - 1] ===
-          lm
+          log[
+            log.length - 1
+          ] === lm
         ) {
           return log;
         }
 
+
         const pieces =
-          (game?.fen ?? "")
+          (
+            game?.fen ?? ""
+          )
             .split(" ")[0]
             .replace(
               /[^a-zA-Z]/g,
               "",
             ).length;
+
 
         const captured =
           pieceCountRef.current >
@@ -872,8 +981,10 @@ function PlayOnline() {
           pieces <
             pieceCountRef.current;
 
+
         pieceCountRef.current =
           pieces;
+
 
         playMoveSound({
           captured,
@@ -883,6 +994,7 @@ function PlayOnline() {
             game?.status ===
             "finished",
         });
+
 
         return [
           ...log,
@@ -894,24 +1006,20 @@ function PlayOnline() {
     game?.last_move,
   ]);
 
-  const history = useMemo(
-    () => {
+
+  const history =
+    useMemo(() => {
       const replay =
         new Chess();
+
 
       for (
         const m of moveLog
       ) {
         try {
           replay.move({
-            from: m.slice(
-              0,
-              2,
-            ),
-            to: m.slice(
-              2,
-              4,
-            ),
+            from: m.slice(0, 2),
+            to: m.slice(2, 4),
             promotion: "q",
           });
         } catch {
@@ -919,25 +1027,32 @@ function PlayOnline() {
         }
       }
 
+
       return replay.history({
         verbose: true,
       }) as Move[];
-    },
-    [moveLog],
-  );
+    }, [
+      moveLog,
+    ]);
+
 
   /*
    * Clear errors when it becomes our turn.
    */
+
   useEffect(() => {
     if (myTurn) {
       setError(null);
     }
-  }, [myTurn]);
+  }, [
+    myTurn,
+  ]);
+
 
   /*
-   * Legal destination squares.
+   * Legal destinations
    */
+
   const destinations =
     useMemo(() => {
       if (
@@ -947,13 +1062,12 @@ function PlayOnline() {
         return new Set<string>();
       }
 
+
       return new Set(
         chess
           .moves({
-            square:
-              selected,
-            verbose:
-              true,
+            square: selected,
+            verbose: true,
           })
           .map(
             (m) => m.to,
@@ -964,9 +1078,11 @@ function PlayOnline() {
       selected,
     ]);
 
+
   /*
-   * Highlight king in check.
+   * King in check
    */
+
   const checkSquare =
     useMemo(() => {
       if (
@@ -975,8 +1091,10 @@ function PlayOnline() {
         return null;
       }
 
+
       const turn =
         chess.turn();
+
 
       for (
         const row of chess.board()
@@ -986,22 +1104,25 @@ function PlayOnline() {
         ) {
           if (
             cell &&
-            cell.type ===
-              "k" &&
-            cell.color ===
-              turn
+            cell.type === "k" &&
+            cell.color === turn
           ) {
             return cell.square;
           }
         }
       }
 
+
       return null;
-    }, [chess]);
+    }, [
+      chess,
+    ]);
+
 
   /*
-   * Last move highlight.
+   * Last move
    */
+
   const lastMove =
     game?.last_move
       ? {
@@ -1010,6 +1131,7 @@ function PlayOnline() {
               0,
               2,
             ),
+
           to:
             game.last_move.slice(
               2,
@@ -1018,11 +1140,11 @@ function PlayOnline() {
         }
       : null;
 
+
   /*
-   * ============================================================
-   * HUMAN MOVE
-   * ============================================================
+   * PLAYER MOVE
    */
+
   const onSquareClick =
     async (
       square: Square,
@@ -1044,13 +1166,16 @@ function PlayOnline() {
         return;
       }
 
+
       setError(null);
+
 
       const piece =
         chess.get(square);
 
+
       /*
-       * Select one of our pieces.
+       * Selecting one of our pieces.
        */
       if (
         piece &&
@@ -1058,8 +1183,7 @@ function PlayOnline() {
           myColor
       ) {
         setSelected(
-          square ===
-            selected
+          square === selected
             ? null
             : square,
         );
@@ -1067,16 +1191,32 @@ function PlayOnline() {
         return;
       }
 
+
+      /*
+       * No piece selected.
+       */
       if (!selected) {
         return;
       }
 
+
       const from =
         selected;
 
+
       setSelected(null);
 
+
       try {
+        console.log(
+          "[PLAYER] Sending move:",
+          {
+            from,
+            to: square,
+          },
+        );
+
+
         const res =
           await move({
             data: {
@@ -1086,26 +1226,39 @@ function PlayOnline() {
             },
           });
 
+
+        console.log(
+          "[PLAYER] Move saved:",
+          res,
+        );
+
+
         setGame(
-          (g) =>
-            g
+          (current) =>
+            current
               ? {
-                  ...g,
-                  fen: res.fen,
+                  ...current,
+
+                  fen:
+                    res.fen,
+
                   status:
                     res.status,
+
                   result:
                     res.result,
+
                   last_move:
                     `${from}${square}`,
                 }
-              : g,
+              : current,
         );
       } catch (e) {
         console.error(
-          "PLAYER MOVE ERROR:",
+          "[PLAYER] Move failed:",
           e,
         );
+
 
         setError(
           e instanceof Error
@@ -1118,11 +1271,11 @@ function PlayOnline() {
       }
     };
 
+
   /*
-   * ============================================================
-   * LOADING
-   * ============================================================
+   * Loading
    */
+
   if (!game) {
     return (
       <Shell>
@@ -1133,9 +1286,11 @@ function PlayOnline() {
     );
   }
 
+
   /*
-   * User isn't a player in this game.
+   * Not a player
    */
+
   if (!myColor) {
     return (
       <Shell>
@@ -1146,19 +1301,22 @@ function PlayOnline() {
     );
   }
 
-  /*
-   * Determine result.
-   */
-  const iWon =
-    game.result ===
-    (myColor === "w"
-      ? "white"
-      : "black");
 
   /*
-   * Status message.
+   * Result
    */
+
+  const iWon =
+    game.result ===
+    (
+      myColor === "w"
+        ? "white"
+        : "black"
+    );
+
+
   let status: string;
+
 
   if (
     game.status ===
@@ -1174,7 +1332,7 @@ function PlayOnline() {
   ) {
     status =
       game.result ===
-      "draw"
+        "draw"
         ? "Draw"
         : iWon
           ? "You won!"
@@ -1186,34 +1344,34 @@ function PlayOnline() {
       chess?.inCheck()
         ? "Your move — you're in check"
         : "Your move";
-  } else if (
-    game.bot_name
-  ) {
-    status = `Waiting for ${
-      opponentName ??
-      game.bot_name
-    }…`;
   } else {
-    status = `Waiting for ${
-      opponentName ??
-      "your opponent"
-    }…`;
+    status =
+      `Waiting for ${
+        opponentName ??
+        "your opponent"
+      }…`;
   }
 
+
   /*
-   * Draw offer.
+   * DRAW OFFER
    */
+
   const sendDrawOffer =
     () => {
       setDrawOffered(
         true,
       );
 
+
       channelRef.current?.send(
         {
-          type: "broadcast",
+          type:
+            "broadcast",
+
           event:
             "draw-offer",
+
           payload: {
             from:
               user?.id,
@@ -1222,24 +1380,30 @@ function PlayOnline() {
       );
     };
 
+
   /*
-   * ============================================================
    * UI
-   * ============================================================
    */
+
   return (
     <Shell>
+
       <div className="flex flex-col items-center gap-5">
+
+        {/* GAME HEADER */}
 
         <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-5 py-3 shadow-[var(--shadow-panel)]">
 
           <div>
+
             <p className="font-medium text-card-foreground">
               {status}
             </p>
 
             <p className="text-xs text-muted-foreground">
+
               You play{" "}
+
               {myColor === "w"
                 ? "White"
                 : "Black"}
@@ -1252,8 +1416,13 @@ function PlayOnline() {
               game.bot_elo
                 ? ` (${game.bot_elo})`
                 : ""}
+
             </p>
+
           </div>
+
+
+          {/* CLOCKS */}
 
           {!!game.time_control && (
             <div className="flex gap-2 font-mono text-sm">
@@ -1261,16 +1430,16 @@ function PlayOnline() {
               <span
                 className={`rounded-md px-2.5 py-1 ${
                   chess?.turn() ===
-                  (myColor ===
-                  "w"
-                    ? "b"
-                    : "w")
+                  (
+                    myColor === "w"
+                      ? "b"
+                      : "w"
+                  )
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground"
                 }`}
               >
                 {opponentName ??
-                  game.bot_name ??
                   "Opponent"}{" "}
                 {fmtClock(
                   remaining(
@@ -1281,6 +1450,7 @@ function PlayOnline() {
                   ) ?? 0,
                 )}
               </span>
+
 
               <span
                 className={`rounded-md px-2.5 py-1 ${
@@ -1302,28 +1472,36 @@ function PlayOnline() {
 
         </div>
 
+
+        {/* WAITING */}
+
         {game.status ===
           "waiting" && (
           <p className="rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
-            {game.invited_username
-              ? `Waiting for ${game.invited_username} to join…`
-              : "Waiting for an opponent. If nobody joins within 30 seconds, a bot will automatically start the game."}
+
+            Share your username —
+            your friend can enter it
+            from their home screen to
+            join you.
+
+            If nobody turns up in a
+            few seconds, a rated
+            opponent at your level
+            will start the game.
+
           </p>
         )}
+
+
+        {/* BOARD + SIDE PANEL */}
 
         <div className="flex w-full flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-center">
 
           <BoardView
             board={board}
-            selected={
-              selected
-            }
-            destinations={
-              destinations
-            }
-            lastMove={
-              lastMove
-            }
+            selected={selected}
+            destinations={destinations}
+            lastMove={lastMove}
             flipped={
               myColor === "b"
             }
@@ -1331,16 +1509,16 @@ function PlayOnline() {
             checkSquare={
               checkSquare
             }
+
             onSquareClick={
               onSquareClick
             }
+
             onDropMove={(
               from,
               to,
             ) => {
-              setSelected(
-                from,
-              );
+              setSelected(from);
 
               void onSquareClick(
                 to,
@@ -1348,27 +1526,31 @@ function PlayOnline() {
             }}
           />
 
+
+          {/* SIDE PANEL */}
+
           <aside className="flex w-full flex-col gap-3 sm:w-52">
 
             <MoveList
               history={history}
               whiteLabel={
-                myColor ===
-                "w"
+                myColor === "w"
                   ? username ??
                     "You"
                   : opponentName ??
                     "White"
               }
               blackLabel={
-                myColor ===
-                "b"
+                myColor === "b"
                   ? username ??
                     "You"
                   : opponentName ??
                     "Black"
               }
             />
+
+
+            {/* GAME BUTTONS */}
 
             {game.status !==
               "finished" && (
@@ -1386,6 +1568,7 @@ function PlayOnline() {
                   Resign
                 </button>
 
+
                 <button
                   onClick={
                     sendDrawOffer
@@ -1402,77 +1585,78 @@ function PlayOnline() {
               </>
             )}
 
+
+            {/* INCOMING DRAW */}
+
             {incomingDraw &&
               game.status ===
                 "active" && (
-                <div className="space-y-2 rounded-xl border border-border bg-card p-3">
 
-                  <p className="text-xs text-muted-foreground">
-                    {opponentName ??
-                      "Your opponent"}{" "}
-                    offers a draw.
-                  </p>
+              <div className="space-y-2 rounded-xl border border-border bg-card p-3">
 
-                  <button
-                    onClick={async () => {
-                      setIncomingDraw(
-                        false,
-                      );
+                <p className="text-xs text-muted-foreground">
+                  {opponentName ??
+                    "Your opponent"}{" "}
+                  offers a draw.
+                </p>
 
-                      try {
-                        await draw({
-                          data: {
-                            gameId,
-                          },
-                        });
-                      } catch (e) {
-                        setError(
-                          e instanceof Error
-                            ? e.message.replace(
-                                /^Error:\s*/,
-                                "",
-                              )
-                            : "Could not accept draw.",
-                        );
-                      }
-                    }}
-                    className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground"
-                  >
-                    Accept
-                  </button>
 
-                  <button
-                    onClick={() => {
-                      setIncomingDraw(
-                        false,
-                      );
+                <button
+                  onClick={async () => {
+                    setIncomingDraw(
+                      false,
+                    );
 
-                      channelRef.current?.send(
-                        {
-                          type:
-                            "broadcast",
-                          event:
-                            "draw-decline",
-                          payload: {
-                            from:
-                              user?.id,
-                          },
+                    await draw({
+                      data: {
+                        gameId,
+                      },
+                    });
+                  }}
+                  className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground"
+                >
+                  Accept
+                </button>
+
+
+                <button
+                  onClick={() => {
+                    setIncomingDraw(
+                      false,
+                    );
+
+                    channelRef.current?.send(
+                      {
+                        type:
+                          "broadcast",
+
+                        event:
+                          "draw-decline",
+
+                        payload: {
+                          from:
+                            user?.id,
                         },
-                      );
-                    }}
-                    className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground"
-                  >
-                    Decline
-                  </button>
+                      },
+                    );
+                  }}
+                  className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground"
+                >
+                  Decline
+                </button>
 
-                </div>
-              )}
+              </div>
+            )}
+
+
+            {/* BOARD THEMES */}
 
             <div className="rounded-xl border border-border bg-card p-3">
 
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Board
               </p>
+
 
               <div className="flex flex-wrap gap-1.5">
 
@@ -1498,10 +1682,15 @@ function PlayOnline() {
                 )}
 
               </div>
+
             </div>
+
+
+            {/* REVIEW */}
 
             {game.status ===
               "finished" && (
+
               <button
                 onClick={() =>
                   setShowResult(
@@ -1512,18 +1701,26 @@ function PlayOnline() {
               >
                 Scorecard & review
               </button>
+
             )}
 
           </aside>
+
         </div>
 
+
+        {/* ERROR */}
+
         {error && (
-          <p className="max-w-xl text-center text-sm text-destructive">
+          <p className="text-sm text-destructive">
             {error}
           </p>
         )}
 
       </div>
+
+
+      {/* GAME OVER */}
 
       <GameOverDialog
         open={
@@ -1531,6 +1728,7 @@ function PlayOnline() {
             "finished" &&
           showResult
         }
+
         headline={
           game.result ===
           "draw"
@@ -1539,6 +1737,7 @@ function PlayOnline() {
               ? "You won!"
               : "You lost"
         }
+
         detail={
           game.result ===
           "draw"
@@ -1547,23 +1746,27 @@ function PlayOnline() {
               ? "Checkmate ended the game."
               : "The game is over."
         }
-        history={history}
+
+        history={
+          history
+        }
+
         whiteLabel={
-          myColor ===
-          "w"
+          myColor === "w"
             ? username ??
               "You"
             : opponentName ??
               "White"
         }
+
         blackLabel={
-          myColor ===
-          "b"
+          myColor === "b"
             ? username ??
               "You"
             : opponentName ??
               "Black"
         }
+
         reportSlot={
           <ReportPanel
             gameId={
@@ -1571,65 +1774,79 @@ function PlayOnline() {
             }
           />
         }
+
         onReview={(
           review,
         ) => {
           void sendFairPlay({
             data: {
               gameId,
+
               stats: (
                 [
                   "w",
                   "b",
                 ] as const
               ).map(
-                (c) => ({
-                  color: c,
+                (color) => ({
+                  color,
+
                   engineMatch:
                     review
                       .fairPlay[
-                      c
-                    ]
+                        color
+                      ]
                       .engineMatch,
+
                   accuracy:
                     review
                       .fairPlay[
-                      c
-                    ]
+                        color
+                      ]
                       .accuracy,
+
                   moves:
                     review
                       .fairPlay[
-                      c
-                    ].moves,
+                        color
+                      ]
+                      .moves,
+
                   suspicion:
                     review
                       .fairPlay[
-                      c
-                    ]
+                        color
+                      ]
                       .suspicion,
                 }),
               ),
             },
           }).catch(
-            () =>
-              undefined,
+            () => undefined,
           );
         }}
+
         onRematch={() =>
           navigate({
             to: "/",
           })
         }
+
         onClose={() =>
           setShowResult(
             false,
           )
         }
       />
+
     </Shell>
   );
 }
+
+
+/*
+ * Page shell
+ */
 
 function Shell({
   children,
